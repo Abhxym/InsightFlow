@@ -13,6 +13,7 @@ app.use(morgan('dev'));
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
+const surveyRoutes = require('./routes/surveyRoutes');
 
 // Basic Route
 app.get('/', (req, res) => {
@@ -20,6 +21,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/surveys', surveyRoutes);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
