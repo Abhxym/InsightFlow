@@ -4,6 +4,8 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import ProtectedRoutes from './components/ProtectedRoutes';
 
+import SurveyBuilder from './pages/SurveyBuilder';
+
 function App() {
   return (
     <Router>
@@ -14,6 +16,7 @@ function App() {
         
         <Route element={<ProtectedRoutes />}>
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/surveys/create" element={<SurveyBuilder />} />
         </Route>
       </Routes>
     </Router>

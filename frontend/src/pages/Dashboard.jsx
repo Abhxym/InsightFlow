@@ -33,7 +33,7 @@ const Dashboard = () => {
           <div className="glass-panel" style={{ padding: '2rem' }}>
             <h3>Create Survey</h3>
             <p>Start a new survey campaign.</p>
-            <button className="btn btn-primary" style={{ marginTop: '1rem' }}>Get Started</button>
+            <button onClick={() => navigate('/surveys/create')} className="btn btn-primary" style={{ marginTop: '1rem' }}>Get Started</button>
           </div>
           <div className="glass-panel" style={{ padding: '2rem' }}>
             <h3>View Results</h3>
