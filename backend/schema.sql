@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS surveys (
   id INT AUTO_INCREMENT PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   description TEXT,
+  status ENUM('draft', 'published') DEFAULT 'draft',
   creator_id INT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE
@@ -30,6 +31,9 @@ CREATE TABLE IF NOT EXISTS questions (
   survey_id INT,
   question_text TEXT NOT NULL,
   question_type VARCHAR(50) NOT NULL,
+  options JSON,
+  order_index INT DEFAULT 0,
+  is_required BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE
 );
