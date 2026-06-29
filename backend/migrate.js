@@ -30,9 +30,39 @@ async function runMigration() {
     } catch(e) { console.log('order_index already exists or error', e.message); }
 
     try {
-      await pool.query("ALTER TABLE questions ADD COLUMN is_required BOOLEAN DEFAULT FALSE");
-      console.log('Added is_required to questions.');
-    } catch(e) { console.log('is_required already exists or error', e.message); }
+      await pool.query("ALTER TABLE questions ADD COLUMN logic JSON");
+      console.log('Added logic to questions.');
+    } catch(e) { console.log('logic already exists or error', e.message); }
+
+    try {
+      await pool.query("ALTER TABLE questions ADD COLUMN validation_rules JSON");
+      console.log('Added validation_rules to questions.');
+    } catch(e) { console.log('validation_rules already exists or error', e.message); }
+
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS survey_responses (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        survey_id INT,
+        user_id INT,
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_submission (survey_id, user_id)
+      )`);
+      console.log('Created survey_responses.');
+    } catch(e) { console.log('Error creating survey_responses', e.message); }
+
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS question_responses (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        response_id INT,
+        question_id INT,
+        answer JSON NOT NULL,
+        FOREIGN KEY (response_id) REFERENCES survey_responses(id) ON DELETE CASCADE,
+        FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
+      )`);
+      console.log('Created question_responses.');
+    } catch(e) { console.log('Error creating question_responses', e.message); }
 
     console.log('Migration complete.');
     process.exit(0);
