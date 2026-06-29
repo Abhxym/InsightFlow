@@ -12,7 +12,7 @@ const questionTypes = [
   { value: 'date', label: 'Date' }
 ];
 
-const QuestionCard = ({ question, index, updateQuestion, removeQuestion, moveQuestion }) => {
+const QuestionCard = ({ question, index, updateQuestion, removeQuestion, moveQuestion, allQuestions }) => {
   
   const handleTypeChange = (e) => {
     const type = e.target.value;
@@ -20,7 +20,9 @@ const QuestionCard = ({ question, index, updateQuestion, removeQuestion, moveQue
     updateQuestion(index, { 
       ...question, 
       question_type: type,
-      options: isChoiceType ? (question.options || ['Option 1']) : null
+      options: isChoiceType ? (question.options || ['Option 1']) : null,
+      validation_rules: null,
+      logic: null
     });
   };
 
@@ -38,6 +40,23 @@ const QuestionCard = ({ question, index, updateQuestion, removeQuestion, moveQue
     const newOptions = question.options.filter((_, i) => i !== optIndex);
     updateQuestion(index, { ...question, options: newOptions });
   };
+
+  const handleValidationChange = (field, value) => {
+    updateQuestion(index, { 
+      ...question, 
+      validation_rules: { ...(question.validation_rules || {}), [field]: value }
+    });
+  };
+
+  const handleLogicChange = (field, value) => {
+    // For simplicity, we support one logic rule per question: Show if Q[idx] == value
+    updateQuestion(index, {
+      ...question,
+      logic: { ...(question.logic || { action: 'show' }), [field]: value }
+    });
+  };
+
+  const prevQuestions = allQuestions.slice(0, index);
 
   return (
     <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '1.5rem', position: 'relative' }}>
@@ -104,6 +123,60 @@ const QuestionCard = ({ question, index, updateQuestion, removeQuestion, moveQue
           <button type="button" onClick={addOption} className="btn" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', marginTop: '0.5rem' }}>
             + Add Option
           </button>
+        </div>
+      )}
+
+      {/* Validation Rules */}
+      {['number'].includes(question.question_type) && (
+        <div style={{ marginTop: '1.5rem', paddingLeft: '1rem', borderLeft: '2px solid var(--primary-color)' }}>
+          <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Validation Rules</p>
+          <div style={{ display: 'flex', gap: '1rem' }}>
+            <input 
+              type="number" 
+              className="form-input" 
+              placeholder="Min value"
+              value={question.validation_rules?.min || ''}
+              onChange={(e) => handleValidationChange('min', e.target.value)}
+            />
+            <input 
+              type="number" 
+              className="form-input" 
+              placeholder="Max value"
+              value={question.validation_rules?.max || ''}
+              onChange={(e) => handleValidationChange('max', e.target.value)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Logic / Branching */}
+      {index > 0 && (
+        <div style={{ marginTop: '1.5rem', paddingLeft: '1rem', borderLeft: '2px solid #a855f7' }}>
+          <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Branch Logic (Show this question if...)</p>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <select 
+              className="form-input" 
+              value={question.logic?.conditionQuestionIndex ?? ''}
+              onChange={(e) => handleLogicChange('conditionQuestionIndex', e.target.value)}
+            >
+              <option value="">Always Show</option>
+              {prevQuestions.map((pq, pqIdx) => (
+                <option key={pqIdx} value={pqIdx}>Question {pqIdx + 1}: {pq.question_text.substring(0,20)}...</option>
+              ))}
+            </select>
+            {question.logic?.conditionQuestionIndex !== undefined && question.logic?.conditionQuestionIndex !== '' && (
+              <>
+                <span style={{ fontSize: '0.9rem' }}>equals</span>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Value (e.g. Yes)"
+                  value={question.logic?.conditionValue || ''}
+                  onChange={(e) => handleLogicChange('conditionValue', e.target.value)}
+                />
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

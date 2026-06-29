@@ -129,6 +129,7 @@ const SurveyBuilder = () => {
             updateQuestion={updateQuestion} 
             removeQuestion={removeQuestion}
             moveQuestion={moveQuestion}
+            allQuestions={questions}
           />
         ))}
       </div>
