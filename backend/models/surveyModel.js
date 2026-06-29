@@ -16,9 +16,11 @@ const saveSurvey = async (title, description, status, creatorId, questions) => {
     if (questions && questions.length > 0) {
       for (const [index, q] of questions.entries()) {
         const optionsJson = q.options ? JSON.stringify(q.options) : null;
+        const logicJson = q.logic ? JSON.stringify(q.logic) : null;
+        const validationJson = q.validation_rules ? JSON.stringify(q.validation_rules) : null;
         await connection.execute(
-          'INSERT INTO questions (survey_id, question_text, question_type, options, order_index, is_required) VALUES (?, ?, ?, ?, ?, ?)',
-          [surveyId, q.question_text, q.question_type, optionsJson, index, q.is_required ? 1 : 0]
+          'INSERT INTO questions (survey_id, question_text, question_type, options, logic, validation_rules, order_index, is_required) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [surveyId, q.question_text, q.question_type, optionsJson, logicJson, validationJson, index, q.is_required ? 1 : 0]
         );
       }
     }
