@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import ProtectedRoutes from './components/ProtectedRoutes';
 
 import SurveyBuilder from './pages/SurveyBuilder';
+import TakeSurvey from './pages/TakeSurvey';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
         <Route element={<ProtectedRoutes />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/surveys/create" element={<SurveyBuilder />} />
+          <Route path="/surveys/:id" element={<TakeSurvey />} />
         </Route>
       </Routes>
     </Router>
