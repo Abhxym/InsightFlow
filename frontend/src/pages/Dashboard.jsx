@@ -69,6 +69,7 @@ const Dashboard = () => {
                 </div>
                 <div style={{ display: 'flex', gap: '1rem' }}>
                   <button onClick={() => navigate(`/surveys/${s.id}`)} className="btn btn-primary">Take Survey</button>
+                  <button onClick={() => navigate(`/surveys/${s.id}/analytics`)} className="btn" style={{ background: 'rgba(255,255,255,0.1)', color: '#fff' }}>View Stats</button>
                 </div>
               </div>
             ))}
