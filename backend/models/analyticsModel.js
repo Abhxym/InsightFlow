@@ -11,7 +11,7 @@ const getSurveyAnalytics = async (surveyId) => {
   
   // 3. Get Responses Data
   const [responseRows] = await pool.execute(`
-    SELECT sr.id as response_id, sr.submitted_at, qr.question_id, qr.answer 
+    SELECT sr.id as response_id, sr.submitted_at, qr.question_id, qr.answer, qr.ai_insight 
     FROM survey_responses sr
     JOIN question_responses qr ON sr.id = qr.response_id
     WHERE sr.survey_id = ?
@@ -28,15 +28,14 @@ const getSurveyAnalytics = async (surveyId) => {
   let npsTotal = 0;
 
   // Chart Data structures
-  // { [question_id]: { [option_text]: count } }
   const choiceDistribution = {};
-  
-  // Line chart: responses per day
   const responsesOverTime = {};
-
-  // Raw data for CSV: 
-  // Map of responseId -> { submitted_at, [qId]: answer }
   const rawResponsesMap = {};
+
+  // AI Insight Data structures
+  const sentimentCounts = { Positive: 0, Negative: 0, Neutral: 0 };
+  const topicCounts = {};
+  const keywordCounts = {};
 
   responseRows.forEach(row => {
     const q = questionRows.find(q => q.id === row.question_id);
@@ -46,7 +45,6 @@ const getSurveyAnalytics = async (surveyId) => {
     if (!rawResponsesMap[row.response_id]) {
       rawResponsesMap[row.response_id] = { submitted_at: row.submitted_at };
     }
-    // Try parsing answer JSON if stored as such, else use string
     let parsedAnswer = row.answer;
     try {
         if(typeof row.answer === 'string' && row.answer.startsWith('"')) parsedAnswer = JSON.parse(row.answer);
@@ -75,13 +73,31 @@ const getSurveyAnalytics = async (surveyId) => {
       if (!isNaN(num)) {
         totalRatingScore += num;
         ratingCount += 1;
-        
-        // Simple NPS logic if it's a 0-10 scale
         if (num >= 0 && num <= 10) {
             npsTotal++;
             if (num >= 9) promoters++;
             else if (num <= 6) detractors++;
         }
+      }
+    }
+
+    // AI Insights Tracking
+    if (row.ai_insight) {
+      let insight = row.ai_insight;
+      if (typeof insight === 'string') {
+        try { insight = JSON.parse(insight); } catch(e){}
+      }
+      
+      if (insight && insight.sentiment) {
+        sentimentCounts[insight.sentiment] = (sentimentCounts[insight.sentiment] || 0) + 1;
+      }
+      if (insight && insight.topic) {
+        topicCounts[insight.topic] = (topicCounts[insight.topic] || 0) + 1;
+      }
+      if (insight && insight.keywords && Array.isArray(insight.keywords)) {
+        insight.keywords.forEach(kw => {
+          keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
+        });
       }
     }
   });
@@ -104,6 +120,12 @@ const getSurveyAnalytics = async (surveyId) => {
     };
   });
 
+  // Format AI Charts
+  const sentimentData = Object.keys(sentimentCounts).map(key => ({ name: key, value: sentimentCounts[key] })).filter(d => d.value > 0);
+  const topicData = Object.keys(topicCounts).map(key => ({ name: key, value: topicCounts[key] })).filter(d => d.value > 0);
+  // Get top 10 keywords
+  const topKeywords = Object.keys(keywordCounts).map(key => ({ text: key, value: keywordCounts[key] })).sort((a,b) => b.value - a.value).slice(0, 10);
+
   const rawResponses = Object.values(rawResponsesMap);
 
   return {
@@ -117,6 +139,11 @@ const getSurveyAnalytics = async (surveyId) => {
     charts: {
       timelineData,
       choiceCharts: chartsData
+    },
+    ai: {
+      sentimentData,
+      topicData,
+      topKeywords
     },
     rawResponses
   };

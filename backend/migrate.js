@@ -64,6 +64,11 @@ async function runMigration() {
       console.log('Created question_responses.');
     } catch(e) { console.log('Error creating question_responses', e.message); }
 
+    try {
+      await pool.query("ALTER TABLE question_responses ADD COLUMN ai_insight JSON");
+      console.log('Added ai_insight to question_responses.');
+    } catch(e) { console.log('ai_insight already exists or error', e.message); }
+
     console.log('Migration complete.');
     process.exit(0);
   } catch (error) {

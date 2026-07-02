@@ -165,6 +165,72 @@ const Analytics = () => {
         </div>
 
       </div>
+      {/* AI Insights */}
+      {data.ai && (data.ai.sentimentData.length > 0 || data.ai.topicData.length > 0) && (
+        <>
+          <h2 style={{ marginTop: '4rem', marginBottom: '1.5rem', background: 'linear-gradient(to right, #f472b6, #c084fc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            ✨ AI Insights
+          </h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '2rem', marginBottom: '3rem' }}>
+            
+            <div className="glass-panel" style={{ padding: '2rem' }}>
+              <h3 style={{ marginBottom: '1.5rem', fontSize: '1.1rem' }}>Sentiment Analysis</h3>
+              <div style={{ height: 250 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={data.ai.sentimentData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {data.ai.sentimentData.map((entry, index) => {
+                        let color = '#9ca3af';
+                        if (entry.name === 'Positive') color = '#4ade80';
+                        if (entry.name === 'Negative') color = '#f87171';
+                        return <Cell key={`cell-${index}`} fill={color} />;
+                      })}
+                    </Pie>
+                    <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="glass-panel" style={{ padding: '2rem' }}>
+              <h3 style={{ marginBottom: '1.5rem', fontSize: '1.1rem' }}>Topic Classification</h3>
+              <div style={{ height: 250 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data.ai.topicData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                    <XAxis dataKey="name" stroke="#9ca3af" />
+                    <YAxis stroke="#9ca3af" allowDecimals={false} />
+                    <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }} />
+                    <Bar dataKey="value" fill="#c084fc" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+          </div>
+
+          <div className="glass-panel" style={{ padding: '2rem', marginBottom: '4rem' }}>
+            <h3 style={{ marginBottom: '1.5rem', fontSize: '1.1rem' }}>Top Keywords</h3>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+              {data.ai.topKeywords.map((kw, i) => (
+                <div key={i} style={{ padding: '0.5rem 1rem', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid #38bdf8', borderRadius: '20px', color: '#38bdf8' }}>
+                  {kw.text} <span style={{ opacity: 0.7, marginLeft: '0.5rem' }}>({kw.value})</span>
+                </div>
+              ))}
+              {data.ai.topKeywords.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No keywords found.</p>}
+            </div>
+          </div>
+        </>
+      )}
+
     </div>
   );
 };

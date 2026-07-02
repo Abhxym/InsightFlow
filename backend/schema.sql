@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS question_responses (
   response_id INT,
   question_id INT,
   answer JSON NOT NULL,
+  ai_insight JSON,
   FOREIGN KEY (response_id) REFERENCES survey_responses(id) ON DELETE CASCADE,
   FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
 );
