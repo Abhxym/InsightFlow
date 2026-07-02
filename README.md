@@ -22,26 +22,9 @@ InsightFlow utilizes a modern three-tier architecture:
 3. **Database**: MySQL (using relational constraints and JSON column data stores).
 4. **AI Microservice**: Python, Flask (Natural Language Processing).
 
-## 🚀 Quick Start
+## 🚧 Status
 
-Ensure you have Node.js, Python, and MySQL installed. 
-
-1. Setup the Database:
-   ```bash
-   cd backend && node migrate.js
-   ```
-2. Start the AI Microservice:
-   ```bash
-   cd ai_service && pip install -r requirements.txt && python app.py
-   ```
-3. Start the Backend API:
-   ```bash
-   cd backend && npm run dev
-   ```
-4. Start the Frontend Application:
-   ```bash
-   cd frontend && npm run dev
-   ```
+**Currently under development.**
 
 ## 📸 Screenshots
 
