@@ -22,14 +22,6 @@ InsightFlow utilizes a modern three-tier architecture:
 3. **Database**: MySQL (using relational constraints and JSON column data stores).
 4. **AI Microservice**: Python, Flask (Natural Language Processing).
 
-*See the [Architecture Document](docs/architecture.md) for Mermaid diagrams and ER Models.*
-
-## 📚 Documentation
-
-- [API Documentation](docs/api.md)
-- [System Architecture & ER Diagram](docs/architecture.md)
-- [Deployment Guide](docs/deployment.md)
-
 ## 🚀 Quick Start
 
 Ensure you have Node.js, Python, and MySQL installed. 
