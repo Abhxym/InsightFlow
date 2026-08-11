@@ -1,6 +1,6 @@
 # InsightFlow 🚀
 
-> **A full-stack, enterprise-grade Survey Analytics Platform and Business Intelligence tool inspired by Qualtrics.**
+> **A full-stack, enterprise-grade Survey Analytics Platform and Business Intelligence tool inspired by industry leaders like Qualtrics and Forsta HX.**
 
 InsightFlow enables organizations to dynamically build complex surveys with logic branching, distribute them securely, and analyze the resulting data using a powerful real-time Business Intelligence (BI) dashboard enhanced by Artificial Intelligence.
 
