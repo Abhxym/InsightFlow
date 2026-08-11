@@ -13,6 +13,28 @@ async function runMigration() {
     
     // Actually, to be safe, I'll execute explicit ALTER statements here.
     console.log('Running schema updates...');
+
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS roles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(50) NOT NULL UNIQUE
+      )`);
+      await pool.query(`INSERT IGNORE INTO roles (id, name) VALUES (1, 'admin'), (2, 'user')`);
+      console.log('Ensured roles table and initial data.');
+    } catch(e) { console.log('Error setting up roles', e.message); }
+
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(100) NOT NULL UNIQUE,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        role_id INT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE SET NULL
+      )`);
+      console.log('Ensured users table.');
+    } catch(e) { console.log('Error setting up users', e.message); }
     
     try {
       await pool.query("ALTER TABLE surveys ADD COLUMN status ENUM('draft', 'published') DEFAULT 'draft'");
