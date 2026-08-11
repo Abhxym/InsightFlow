@@ -1,0 +1,21 @@
+{
+  "name": "insightflow",
+  "version": "1.0.0",
+  "description": "> **A full-stack, enterprise-grade Survey Analytics Platform and Business Intelligence tool inspired by Qualtrics.**",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\" \"cd ai_service && python app.py\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Abhxym/InsightFlow.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Abhxym/InsightFlow/issues"
+  },
+  "homepage": "https://github.com/Abhxym/InsightFlow#readme"
+}
