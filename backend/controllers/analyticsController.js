@@ -2,7 +2,7 @@ const { Parser } = require('json2csv');
 const { getSurveyAnalytics } = require('../models/analyticsModel');
 const axios = require('axios');
 
-const AI_ENGINE_URL = 'http://localhost:5000/api/analytics/full';
+const AI_ENGINE_URL = 'http://localhost:5001/api/analytics/full';
 
 const fetchAnalytics = async (req, res, next) => {
   try {
@@ -96,7 +96,7 @@ const askData = async (req, res, next) => {
       });
     });
 
-    const aiResponse = await axios.post('http://localhost:5000/api/analytics/ask', {
+    const aiResponse = await axios.post('http://localhost:5001/api/analytics/ask', {
       question,
       text_responses: textResponses,
       analytics: {

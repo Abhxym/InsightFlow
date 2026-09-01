@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const AI_SERVICE_URL = 'http://localhost:5000/api/analyze';
+const AI_SERVICE_URL = 'http://localhost:5001/api/analyze';
 
 const analyzeText = async (text) => {
   try {
