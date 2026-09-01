@@ -1,8 +1,13 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 import os
 import sys
+import re
+from collections import defaultdict
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional, Any, Dict
 from dotenv import load_dotenv
+import uvicorn
 
 # Load .env from ai_service directory
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
@@ -19,25 +24,43 @@ from engine.anomaly import run_full_anomaly_scan
 from engine.report import generate_report
 from engine.rag import answer_question
 
-app = Flask(__name__)
-CORS(app)
+app = FastAPI(title="InsightFlow AI Service")
 
+# Setup CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ─────────────────────────────────────────────
+# Pydantic Models
+# ─────────────────────────────────────────────
+class AnalyzeSingleRequest(BaseModel):
+    text: str
+
+class FullAnalyticsRequest(BaseModel):
+    survey_title: str
+    total_responses: int
+    text_responses: List[str]
+    numeric_scores: List[Optional[float]]
+    timestamps: List[str]
+    sentiment_counts: Dict[str, int]
+
+class AskDataRequest(BaseModel):
+    question: str
+    text_responses: List[str]
+    analytics: Dict[str, Any]
 
 # ─────────────────────────────────────────────
 # 1. SINGLE TEXT ANALYSIS (used on submission)
 # ─────────────────────────────────────────────
-@app.route('/api/analyze', methods=['POST'])
-def analyze_single():
+@app.post("/api/analyze")
+async def analyze_single(req: AnalyzeSingleRequest):
     """Quick per-response analysis on submission."""
-    import re
-    from collections import defaultdict
-
-    data = request.json
-    if not data or 'text' not in data:
-        return jsonify({'error': 'No text provided'}), 400
-
-    text = data['text']
-    text_lower = text.lower()
+    text_lower = req.text.lower()
 
     # Sentiment
     positive_words = ['good', 'great', 'excellent', 'amazing', 'love', 'best', 'awesome', 'happy', 'perfect', 'fast', 'easy']
@@ -64,33 +87,20 @@ def analyze_single():
     stop_words = {'about', 'there', 'their', 'which', 'would', 'could', 'should', 'these'}
     keywords = list(set([w for w in words if w not in stop_words]))[:5]
 
-    return jsonify({'sentiment': sentiment, 'topic': detected_topic, 'keywords': keywords})
-
+    return {'sentiment': sentiment, 'topic': detected_topic, 'keywords': keywords}
 
 # ─────────────────────────────────────────────
 # 2. FULL AI ANALYTICS ENGINE
 # ─────────────────────────────────────────────
-@app.route('/api/analytics/full', methods=['POST'])
-def full_analytics():
+@app.post("/api/analytics/full")
+async def full_analytics(req: FullAnalyticsRequest):
     """
     Full AI analytics pipeline.
-    Accepts all survey response data and returns:
-    - Semantic themes (clustered)
-    - Statistical analysis (NPS, CSAT, std dev, distribution)
-    - Anomaly detection
-    - Natural language report
+    Accepts all survey response data and returns clustered themes, stats, and NL reports.
     """
-    data = request.json
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-
-    text_responses = data.get('text_responses', [])
-    numeric_scores = [float(x) for x in data.get('numeric_scores', []) if x is not None]
-    timestamps = data.get('timestamps', [])
-    sentiment_counts = data.get('sentiment_counts', {})
-    survey_title = data.get('survey_title', 'Survey')
-    total_responses = data.get('total_responses', 0)
-
+    text_responses = req.text_responses
+    numeric_scores = [float(x) for x in req.numeric_scores if x is not None]
+    
     # 1. Semantic Theme Discovery
     themes = []
     if len(text_responses) >= 2:
@@ -104,19 +114,19 @@ def full_analytics():
     nps = compute_nps(numeric_scores) if numeric_scores else {}
     csat = compute_csat(numeric_scores) if numeric_scores else {}
     distribution = compute_response_distribution(numeric_scores) if numeric_scores else []
-    time_trends = compute_time_trends(timestamps)
+    time_trends = compute_time_trends(req.timestamps)
 
     # 3. Anomaly Detection
     anomalies = run_full_anomaly_scan(numeric_scores, time_trends)
 
     # 4. Build payload for report
     analytics_payload = {
-        'survey_title': survey_title,
-        'total_responses': total_responses,
+        'survey_title': req.survey_title,
+        'total_responses': req.total_responses,
         'statistics': statistics,
         'nps': nps,
         'csat': csat,
-        'sentiment': sentiment_counts,
+        'sentiment': req.sentiment_counts,
         'themes': themes,
         'anomalies': anomalies,
     }
@@ -124,7 +134,7 @@ def full_analytics():
     # 5. Generate Natural Language Report
     nl_report = generate_report(analytics_payload)
 
-    return jsonify({
+    return {
         'themes': themes,
         'statistics': statistics,
         'nps': nps,
@@ -133,32 +143,21 @@ def full_analytics():
         'time_trends': time_trends,
         'anomalies': anomalies,
         'nl_report': nl_report
-    })
-
+    }
 
 # ─────────────────────────────────────────────
 # 3. ASK YOUR DATA (RAG AGENT)
 # ─────────────────────────────────────────────
-@app.route('/api/analytics/ask', methods=['POST'])
-def ask_data():
+@app.post("/api/analytics/ask")
+async def ask_data(req: AskDataRequest):
     """
     RAG-based conversational analyst.
-    Accepts a question + full analytics context and returns an evidence-backed answer.
     """
-    data = request.json
-    if not data or 'question' not in data:
-        return jsonify({'error': 'No question provided'}), 400
-
-    question = data['question']
-    analytics_payload = data.get('analytics', {})
-    text_responses = data.get('text_responses', [])
-
     try:
-        result = answer_question(question, analytics_payload, text_responses)
-        return jsonify(result)
+        result = answer_question(req.question, req.analytics, req.text_responses)
+        return result
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=5000, reload=True)
