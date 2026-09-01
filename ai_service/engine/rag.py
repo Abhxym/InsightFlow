@@ -8,8 +8,6 @@ import os
 import re
 import google.generativeai as genai
 from engine.semantic import embed_texts, build_index, search_similar
-import numpy as np
-from sklearn.preprocessing import normalize
 
 
 def _configure_gemini():

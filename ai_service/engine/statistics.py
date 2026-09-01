@@ -1,21 +1,15 @@
 """
 Statistical Analytics Engine
-Computes NPS, CSAT, standard deviation, completion rate, time-based trends,
-response distribution, and cross-tab analytics — proper BI statistics.
+Computes BI statistics using pure Python (no numpy/scipy required).
 """
 
-import numpy as np
-from scipy import stats
+import math
+import statistics
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 def compute_nps(scores: list[float]) -> dict:
-    """
-    Compute Net Promoter Score from 0-10 scale.
-    Promoters >= 9, Detractors <= 6, Passives = 7-8
-    NPS = (Promoters% - Detractors%)
-    """
     if not scores:
         return {'score': None, 'promoters': 0, 'passives': 0, 'detractors': 0, 'total': 0}
 
@@ -40,10 +34,6 @@ def compute_nps(scores: list[float]) -> dict:
 
 
 def compute_csat(scores: list[float], scale_max: float = 5.0) -> dict:
-    """
-    CSAT = % of respondents rating >= 4 out of 5 (or equivalent).
-    For 1-10 scale, satisfied >= 8.
-    """
     if not scores:
         return {'score': None, 'satisfied_pct': 0}
 
@@ -60,44 +50,68 @@ def compute_csat(scores: list[float], scale_max: float = 5.0) -> dict:
 
 
 def compute_descriptive_stats(values: list[float]) -> dict:
-    """Full descriptive statistics for a numeric dataset."""
     if not values:
         return {}
 
-    arr = np.array(values)
+    mean = statistics.mean(values)
+    median = statistics.median(values)
+    
+    std_dev = 0.0
+    variance = 0.0
+    if len(values) > 1:
+        std_dev = statistics.stdev(values)
+        variance = statistics.variance(values)
+        
+    # Manual skewness approx
+    skewness = 0.0
+    if std_dev > 0 and len(values) > 2:
+        n = len(values)
+        skewness = (n / ((n - 1) * (n - 2))) * sum(((x - mean) / std_dev) ** 3 for x in values)
+
+    sorted_vals = sorted(values)
+    q1 = sorted_vals[int(len(sorted_vals) * 0.25)] if sorted_vals else 0
+    q3 = sorted_vals[int(len(sorted_vals) * 0.75)] if sorted_vals else 0
+
     return {
-        'mean': round(float(np.mean(arr)), 2),
-        'median': round(float(np.median(arr)), 2),
-        'std_dev': round(float(np.std(arr)), 2),
-        'variance': round(float(np.var(arr)), 2),
-        'min': float(np.min(arr)),
-        'max': float(np.max(arr)),
-        'q1': round(float(np.percentile(arr, 25)), 2),
-        'q3': round(float(np.percentile(arr, 75)), 2),
-        'skewness': round(float(stats.skew(arr)), 3),
+        'mean': round(mean, 2),
+        'median': round(median, 2),
+        'std_dev': round(std_dev, 2),
+        'variance': round(variance, 2),
+        'min': min(values),
+        'max': max(values),
+        'q1': round(q1, 2),
+        'q3': round(q3, 2),
+        'skewness': round(skewness, 3),
         'count': len(values)
     }
 
 
 def compute_response_distribution(values: list[float], bins: int = 5) -> list[dict]:
-    """Compute histogram-style distribution of numeric responses."""
     if not values:
         return []
 
-    arr = np.array(values)
-    counts, bin_edges = np.histogram(arr, bins=bins)
+    min_val = min(values)
+    max_val = max(values)
+    if min_val == max_val:
+        return [{'range': f"{min_val:.1f}-{max_val:.1f}", 'count': len(values)}]
+        
+    step = (max_val - min_val) / bins
     distribution = []
-    for i, count in enumerate(counts):
-        label = f'{bin_edges[i]:.1f}–{bin_edges[i+1]:.1f}'
-        distribution.append({'range': label, 'count': int(count)})
+    
+    for i in range(bins):
+        low = min_val + (i * step)
+        high = min_val + ((i + 1) * step)
+        if i == bins - 1:
+            count = sum(1 for v in values if low <= v <= high)
+        else:
+            count = sum(1 for v in values if low <= v < high)
+            
+        distribution.append({'range': f'{low:.1f}–{high:.1f}', 'count': count})
+        
     return distribution
 
 
 def compute_time_trends(timestamps: list[str], window_days: int = 7) -> list[dict]:
-    """
-    Compute rolling response volume by day.
-    Returns sorted daily counts for line chart.
-    """
     if not timestamps:
         return []
 
@@ -112,17 +126,3 @@ def compute_time_trends(timestamps: list[str], window_days: int = 7) -> list[dic
     sorted_days = sorted(daily.keys())
     result = [{'date': d, 'count': daily[d]} for d in sorted_days]
     return result
-
-
-def compute_completion_rate(total_started: int, total_completed: int) -> dict:
-    """Compute survey completion rate."""
-    if total_started == 0:
-        return {'rate': 0, 'drop_off': 0}
-
-    rate = round(total_completed / total_started * 100, 1)
-    return {
-        'rate': rate,
-        'completed': total_completed,
-        'started': total_started,
-        'drop_off': round(100 - rate, 1)
-    }
