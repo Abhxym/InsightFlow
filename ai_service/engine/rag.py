@@ -1,15 +1,23 @@
 """
 RAG-based "Ask Your Data" AI Analyst
 Uses semantic search (FAISS) to retrieve relevant responses,
-then generates evidence-backed answers using templates or LLM.
+then generates evidence-backed answers using Google Gemini.
 """
 
 import os
 import re
+import google.generativeai as genai
 from engine.semantic import embed_texts, build_index, search_similar
 import numpy as np
 from sklearn.preprocessing import normalize
 
+
+def _configure_gemini():
+    api_key = os.getenv('GEMINI_API_KEY')
+    if api_key:
+        genai.configure(api_key=api_key)
+        return True
+    return False
 
 # Intent classification patterns
 INTENT_PATTERNS = {
@@ -40,7 +48,8 @@ def detect_intent(question: str) -> str:
 def answer_question(question: str, analytics_payload: dict, text_responses: list[str]) -> dict:
     """
     Main entry point for "Ask your data".
-    Returns an answer with supporting evidence.
+    Uses FAISS semantic search to retrieve relevant responses,
+    then Gemini to generate a grounded, evidence-backed answer.
     """
     intent = detect_intent(question)
     context = _build_context(analytics_payload)
@@ -54,14 +63,28 @@ def answer_question(question: str, analytics_payload: dict, text_responses: list
         except Exception:
             pass
 
-    # Generate answer based on intent
-    answer = _generate_answer(intent, question, context, relevant_responses, analytics_payload)
+    # Try Gemini first, fall back to templates
+    if _configure_gemini():
+        try:
+            answer = _generate_with_gemini(question, context, relevant_responses, analytics_payload)
+            return {
+                'intent': intent,
+                'answer': answer,
+                'supporting_responses': relevant_responses[:3],
+                'confidence': _get_confidence(intent, relevant_responses),
+                'powered_by': 'gemini'
+            }
+        except Exception as e:
+            print(f"Gemini RAG failed: {e}, falling back to template.")
 
+    # Fallback to template-based answer
+    answer = _generate_answer(intent, question, context, relevant_responses, analytics_payload)
     return {
         'intent': intent,
         'answer': answer,
         'supporting_responses': relevant_responses[:3],
-        'confidence': _get_confidence(intent, relevant_responses)
+        'confidence': _get_confidence(intent, relevant_responses),
+        'powered_by': 'template'
     }
 
 
@@ -78,6 +101,45 @@ def _build_context(payload: dict) -> dict:
         'anomalies': payload.get('anomalies', {}),
         'survey_title': payload.get('survey_title', 'this survey')
     }
+
+
+def _generate_with_gemini(question: str, context: dict, relevant_responses: list, payload: dict) -> str:
+    """Generate a grounded, evidence-backed answer using Google Gemini."""
+    sentiment = context.get('sentiment', {})
+    total_sent = sum(sentiment.values()) if sentiment else 0
+    pos_pct = round(sentiment.get('Positive', 0) / total_sent * 100, 1) if total_sent > 0 else 0
+    neg_pct = round(sentiment.get('Negative', 0) / total_sent * 100, 1) if total_sent > 0 else 0
+
+    themes = context.get('themes', [])
+    theme_str = '\n'.join([f'- "{t["label"]}": {t["percentage"]}% — e.g. "{t["representative_quote"]}"' for t in themes[:3]]) if themes else 'No themes discovered yet.'
+
+    retrieved_str = '\n'.join([f'- "{r["text"]}" (relevance: {round(r["score"]*100)}%)' for r in relevant_responses]) if relevant_responses else 'No directly relevant responses retrieved.'
+
+    system_prompt = f"""You are an expert AI Data Analyst for InsightFlow, a Business Intelligence platform.
+You have access to survey analytics data and retrieved customer responses.
+Answer the user's question concisely, citing specific data and actual customer quotes.
+Use **bold** for key numbers. Be direct and insightful. Max 200 words."""
+
+    data_context = f"""
+Survey: "{context.get('survey_title')}"
+Total Responses: {context.get('total')}
+Average Rating: {context.get('avg_rating')}/5
+NPS Score: {context.get('nps')} ({context.get('nps_label')})
+Sentiment: {pos_pct}% Positive, {neg_pct}% Negative
+Anomalies: {context.get('anomalies', {}).get('summary', 'None')}
+
+Top Discovered Themes:
+{theme_str}
+
+Semantically Retrieved Responses (most relevant to the question):
+{retrieved_str}
+
+User's Question: {question}"""
+
+    model = genai.GenerativeModel('gemini-1.5-flash',
+                                   system_instruction=system_prompt)
+    response = model.generate_content(data_context)
+    return response.text
 
 
 def _generate_answer(intent: str, question: str, ctx: dict, relevant: list, payload: dict) -> str:

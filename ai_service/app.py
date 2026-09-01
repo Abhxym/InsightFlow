@@ -2,6 +2,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import sys
+from dotenv import load_dotenv
+
+# Load .env from ai_service directory
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 # Add engine to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
