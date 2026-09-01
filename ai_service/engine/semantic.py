@@ -98,28 +98,92 @@ def discover_themes(texts: list[str], n_clusters: int = None) -> list[dict]:
     return themes
 
 
+import os
+import uuid
+from pinecone import Pinecone, ServerlessSpec
+
 def build_index(texts: list[str]):
-    """Build FAISS index from texts. Returns (index, embeddings, texts)."""
+    """
+    Build vector index from texts.
+    Uses Pinecone if PINECONE_API_KEY is present, otherwise falls back to FAISS.
+    Returns (index_obj, embeddings, texts).
+    """
     embeddings = embed_texts(texts)
-    index = faiss.IndexFlatIP(embeddings.shape[1])
-    index.add(embeddings.astype(np.float32))
-    return index, embeddings, texts
+    
+    pinecone_key = os.getenv("PINECONE_API_KEY")
+    if pinecone_key:
+        try:
+            pc = Pinecone(api_key=pinecone_key)
+            index_name = "insightflow-rag"
+            
+            if index_name not in pc.list_indexes().names():
+                pc.create_index(
+                    name=index_name,
+                    dimension=embeddings.shape[1],
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud='aws', region='us-east-1')
+                )
+            
+            pinecone_index = pc.Index(index_name)
+            namespace = f"session_{uuid.uuid4().hex[:8]}"
+            
+            # Upsert vectors ephemerally for this query session
+            vectors = [
+                {"id": str(i), "values": emb.tolist(), "metadata": {"text": txt}}
+                for i, (emb, txt) in enumerate(zip(embeddings, texts))
+            ]
+            pinecone_index.upsert(vectors=vectors, namespace=namespace)
+            
+            return {"type": "pinecone", "index": pinecone_index, "namespace": namespace}, embeddings, texts
+        except Exception as e:
+            print(f"Pinecone initialization failed: {e}, falling back to FAISS")
+
+    # FAISS Fallback
+    faiss_index = faiss.IndexFlatIP(embeddings.shape[1])
+    faiss_index.add(embeddings.astype(np.float32))
+    return {"type": "faiss", "index": faiss_index}, embeddings, texts
 
 
-def search_similar(query: str, index, texts: list[str], top_k: int = 5) -> list[dict]:
-    """Find top-k most semantically similar responses to a query string."""
+def search_similar(query: str, index_info, texts: list[str], top_k: int = 5) -> list[dict]:
+    """Find top-k most semantically similar responses using Pinecone or FAISS."""
     model = get_model()
     query_embedding = model.encode([query], convert_to_numpy=True)
     query_embedding = normalize(query_embedding).astype(np.float32)
-
     k = min(top_k, len(texts))
-    scores, indices = index.search(query_embedding, k)
-
+    
     results = []
-    for score, idx in zip(scores[0], indices[0]):
-        if idx >= 0:
-            results.append({
-                'text': texts[idx],
-                'score': round(float(score), 4)
-            })
-    return results
+    
+    if index_info["type"] == "pinecone":
+        pc_index = index_info["index"]
+        ns = index_info["namespace"]
+        try:
+            res = pc_index.query(
+                vector=query_embedding[0].tolist(),
+                top_k=k,
+                namespace=ns,
+                include_metadata=True
+            )
+            for match in res.get("matches", []):
+                results.append({
+                    'text': match["metadata"]["text"],
+                    'score': round(float(match["score"]), 4)
+                })
+            # Cleanup ephemeral namespace
+            pc_index.delete(delete_all=True, namespace=ns)
+            return results
+        except Exception as e:
+            print(f"Pinecone search failed: {e}")
+            # If Pinecone fails, we just return empty so it degrades gracefully
+            return []
+            
+    else:
+        # FAISS search
+        faiss_index = index_info["index"]
+        scores, indices = faiss_index.search(query_embedding, k)
+        for score, idx in zip(scores[0], indices[0]):
+            if idx >= 0:
+                results.append({
+                    'text': texts[idx],
+                    'score': round(float(score), 4)
+                })
+        return results
