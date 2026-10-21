@@ -1,4 +1,5 @@
 const { saveSurvey, getSurveysByCreator, getCreatorOverview, getSurveyById, deleteSurvey } = require('../models/surveyModel');
+const { deleteSurveyIndex } = require('../utils/ai');
 
 const createSurvey = async (req, res, next) => {
   try {
@@ -54,6 +55,7 @@ const removeSurvey = async (req, res, next) => {
   try {
     const { id } = req.params;
     await deleteSurvey(id);
+    deleteSurveyIndex(id); // best effort, don't make the user wait
     res.json({ message: 'Survey deleted successfully' });
   } catch (error) {
     next(error);

@@ -5,10 +5,11 @@ then generates grounded, cited answers using Google Gemini.
 """
 
 import re
-from engine.semantic import (
-    configure_gemini as _configure_gemini, chat_model,
-    build_index, search_similar, discover_themes
-)
+import hashlib
+from engine import gemini
+from engine.semantic import sync_survey_index, search_similar, discover_themes
+
+_configure_gemini = gemini.configure
 
 # Intent classification patterns
 INTENT_PATTERNS = {
@@ -36,7 +37,7 @@ def detect_intent(question: str) -> str:
     return 'general'
 
 
-def answer_question(question: str, analytics_payload: dict, text_responses: list[str]) -> dict:
+def answer_question(question: str, analytics_payload: dict, text_responses: list[str], survey_id=None) -> dict:
     """
     Main entry point for "Ask your data".
     Uses Pinecone semantic search to retrieve relevant responses,
@@ -53,18 +54,14 @@ def answer_question(question: str, analytics_payload: dict, text_responses: list
     relevant_responses = []
     if text_responses:
         try:
-            index, _, texts = build_index(text_responses)
-            # Fetch extra matches, then drop duplicate answers so every cited source is distinct
-            matches = search_similar(question, index, text_responses, top_k=12)
-            seen_texts = set()
-            for m in matches:
-                key = m['text'].strip().lower()
-                if key not in seen_texts:
-                    seen_texts.add(key)
-                    relevant_responses.append(m)
-            relevant_responses = relevant_responses[:5]
+            # Persistent per-survey namespace; identical answers share one vector,
+            # so every cited source is distinct
+            if survey_id is None:
+                survey_id = 'adhoc_' + hashlib.sha1('\n'.join(sorted(text_responses)).encode()).hexdigest()[:12]
+            namespace = sync_survey_index(survey_id, text_responses)
+            relevant_responses = search_similar(question, namespace, text_responses, top_k=5)
         except Exception as e:
-            print(f"Semantic retrieval failed: {e}")
+            print(f"Semantic retrieval failed: {str(e)[:200]}")
 
     # Try Gemini first, fall back to templates
     if _configure_gemini():
@@ -142,9 +139,7 @@ Semantically Retrieved Responses (most relevant to the question):
 
 User's Question: {question}"""
 
-    model = chat_model(system_instruction=system_prompt)
-    response = model.generate_content(data_context, generation_config={"temperature": 0.2})
-    return response.text
+    return gemini.generate(data_context, system_instruction=system_prompt, temperature=0.2, max_wait=25)
 
 
 def _generate_answer(intent: str, question: str, ctx: dict, relevant: list, payload: dict) -> str:

@@ -1,11 +1,11 @@
 // Seeds a demo account with a realistic survey and ~40 responses spread over the last two weeks.
-// Text answers go through the AI service (/api/analyze) exactly like real submissions.
+// Text answers are scored by the AI service (/api/analyze/batch) in one call.
 // Usage: node scripts/seedDemo.js   (MySQL running; AI service on :5001 optional)
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const bcrypt = require('bcrypt');
 const pool = require('../config/db');
-const { analyzeText } = require('../utils/ai');
+const { analyzeTexts } = require('../utils/ai');
 
 const DEMO_EMAIL = 'demo@insightflow.test';
 const DEMO_PASSWORD = 'demo1234';
@@ -54,20 +54,26 @@ async function main() {
     ['Employee Pulse — November', 'Quick monthly check-in.', 'draft', owner.id]);
 
   const questionDefs = [
-    ['How likely are you to recommend us to a friend?', 'rating', null],
+    ['How likely are you to recommend us to a friend?', 'rating', null, { scale: 10 }],
+    ['How would you rate our support? (1–5 stars)', 'rating', null, { scale: 5 }],
     ['How did you place your order?', 'radio', CHANNELS],
     ['What did you like? (pick any)', 'checkbox', LIKES],
     ['Tell us about your experience.', 'long_text', null]
   ];
   const qIds = [];
   for (let i = 0; i < questionDefs.length; i++) {
-    const [text, type, options] = questionDefs[i];
+    const [text, type, options, rules] = questionDefs[i];
     const [q] = await pool.execute(
-      'INSERT INTO questions (survey_id, question_text, question_type, options, order_index, is_required) VALUES (?, ?, ?, ?, ?, ?)',
-      [surveyId, text, type, options ? JSON.stringify(options) : null, i, i === 0]
+      'INSERT INTO questions (survey_id, question_text, question_type, options, validation_rules, order_index, is_required) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [surveyId, text, type, options ? JSON.stringify(options) : null, rules ? JSON.stringify(rules) : null, i, i === 0]
     );
     qIds.push(q.insertId);
   }
+
+  // Score every distinct demo comment in one AI call
+  const comments = COMMENTS.map(([, c]) => c);
+  const insights = await analyzeTexts(comments);
+  const insightFor = new Map(comments.map((c, i) => [c, insights[i]]));
 
   const total = 40;
   for (let n = 0; n < total; n++) {
@@ -83,13 +89,15 @@ async function main() {
 
     const [score, comment] = COMMENTS[n % COMMENTS.length];
     const likes = LIKES.filter(() => Math.random() < 0.35);
-    const insight = await analyzeText(comment);
+    const insight = insightFor.get(comment);
+    const stars = Math.max(1, Math.min(5, Math.round(score / 2) + (Math.random() < 0.3 ? 1 : 0)));
 
     const rows = [
       [qIds[0], score, null],
-      [qIds[1], pick(CHANNELS), null],
-      [qIds[2], likes.length ? likes : [pick(LIKES)], null],
-      [qIds[3], comment, insight ? JSON.stringify(insight) : null]
+      [qIds[1], stars, null],
+      [qIds[2], pick(CHANNELS), null],
+      [qIds[3], likes.length ? likes : [pick(LIKES)], null],
+      [qIds[4], comment, insight ? JSON.stringify(insight) : null]
     ];
     for (const [qid, answer, ai] of rows) {
       await pool.execute('INSERT INTO question_responses (response_id, question_id, answer, ai_insight) VALUES (?, ?, ?, ?)',

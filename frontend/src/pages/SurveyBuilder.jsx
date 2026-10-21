@@ -6,12 +6,25 @@ import {
 } from 'lucide-react';
 import QuestionCard, { questionTypes } from '../components/QuestionCard';
 import { Empty } from '../components/ui';
+import { normalizeLogic } from '../utils/logic';
 import api from '../services/axios';
 
 const TYPE_ICONS = {
   short_text: Type, long_text: AlignLeft, radio: CircleDot, checkbox: CheckSquare,
   dropdown: ChevronDownSquare, rating: Star, number: Hash, email: AtSign, date: CalendarDays
 };
+
+// After questions move or are deleted, point every branch rule at the question's new
+// position, and drop rules whose target is gone or no longer comes earlier.
+const remapLogic = (questions, newIndexOf) => questions.map((q, qi) => {
+  const logic = normalizeLogic(q.logic);
+  if (!logic) return q;
+  const conditions = logic.conditions
+    .map(c => ({ ...c, questionIndex: newIndexOf(parseInt(c.questionIndex, 10)) }))
+    .filter(c => c.questionIndex !== null && c.questionIndex < qi)
+    .map(c => ({ ...c, questionIndex: String(c.questionIndex) }));
+  return { ...q, logic: conditions.length ? { ...logic, conditions } : null };
+});
 
 const SurveyBuilder = () => {
   const [title, setTitle] = useState('');
@@ -29,7 +42,8 @@ const SurveyBuilder = () => {
         question_text: '',
         question_type: type,
         is_required: false,
-        options: isChoiceType ? ['Option 1', 'Option 2'] : null
+        options: isChoiceType ? ['Option 1', 'Option 2'] : null,
+        validation_rules: type === 'rating' ? { scale: 10 } : null
       }
     ]);
   };
@@ -41,14 +55,16 @@ const SurveyBuilder = () => {
   };
 
   const removeQuestion = (index) => {
-    setQuestions(questions.filter((_, i) => i !== index));
+    const remaining = questions.filter((_, i) => i !== index);
+    setQuestions(remapLogic(remaining, old => (old === index ? null : old > index ? old - 1 : old)));
   };
 
   const moveQuestion = (index, dir) => {
-    if (index + dir < 0 || index + dir >= questions.length) return;
+    const other = index + dir;
+    if (other < 0 || other >= questions.length) return;
     const newQs = [...questions];
-    [newQs[index], newQs[index + dir]] = [newQs[index + dir], newQs[index]];
-    setQuestions(newQs);
+    [newQs[index], newQs[other]] = [newQs[other], newQs[index]];
+    setQuestions(remapLogic(newQs, old => (old === index ? other : old === other ? index : old)));
   };
 
   const handleSave = async (status) => {
@@ -142,7 +158,7 @@ const SurveyBuilder = () => {
                   <button key={t.value} className="list-row" onClick={() => addQuestion(t.value)}
                     style={{ flexDirection: 'column', gap: 6, padding: '12px 6px', cursor: 'pointer', color: 'var(--text-2)', font: 'inherit', fontSize: '0.74rem', textAlign: 'center' }}>
                     <Icon size={17} color="var(--accent)" />
-                    {t.label.replace(' (0–10)', '')}
+                    {t.label}
                   </button>
                 );
               })}

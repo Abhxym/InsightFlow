@@ -1,5 +1,5 @@
 const pool = require('../config/db');
-const { analyzeText } = require('../utils/ai');
+const { analyzeTexts } = require('../utils/ai');
 
 const checkDuplicateSubmission = async (surveyId, userId) => {
   const [rows] = await pool.execute(
@@ -10,14 +10,21 @@ const checkDuplicateSubmission = async (surveyId, userId) => {
 };
 
 const saveResponse = async (surveyId, userId, answers) => {
+  // Fetch questions to know their types
+  const [questions] = await pool.execute('SELECT id, question_type FROM questions WHERE survey_id = ?', [surveyId]);
+  const questionTypes = {};
+  questions.forEach(q => { questionTypes[q.id] = q.question_type; });
+
+  // Analyse every open-ended answer in one AI call, before the transaction starts
+  const isText = (ans) => ['short_text', 'long_text'].includes(questionTypes[ans.question_id])
+    && typeof ans.answer_data === 'string' && ans.answer_data.trim().length > 0;
+  const textAnswers = answers.filter(isText);
+  const insights = await analyzeTexts(textAnswers.map(a => a.answer_data));
+  const insightFor = new Map(textAnswers.map((a, i) => [a, insights[i]]));
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-
-    // Fetch questions to know their types
-    const [questions] = await connection.execute('SELECT id, question_type FROM questions WHERE survey_id = ?', [surveyId]);
-    const questionTypes = {};
-    questions.forEach(q => { questionTypes[q.id] = q.question_type; });
 
     // Create survey response record
     const [surveyRes] = await connection.execute(
@@ -28,14 +35,7 @@ const saveResponse = async (surveyId, userId, answers) => {
 
     // Insert individual answers
     for (const ans of answers) {
-      let aiInsight = null;
-      const qType = questionTypes[ans.question_id];
-
-      // If it's a text question, analyze it using the AI service
-      if ((qType === 'short_text' || qType === 'long_text') && typeof ans.answer_data === 'string' && ans.answer_data.trim().length > 0) {
-        aiInsight = await analyzeText(ans.answer_data);
-      }
-
+      const aiInsight = insightFor.get(ans) || null;
       const insightJson = aiInsight ? JSON.stringify(aiInsight) : null;
 
       await connection.execute(

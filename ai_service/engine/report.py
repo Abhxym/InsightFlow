@@ -4,7 +4,11 @@ Generates professional, evidence-backed analytical narratives from computed data
 Falls back to template-based generation if Gemini is unavailable.
 """
 
-from engine.semantic import configure_gemini as _configure_gemini, chat_model
+from engine import gemini
+
+_configure_gemini = gemini.configure
+# Same numbers -> same report; avoids spending quota on every page load
+_REPORT_CACHE: dict[str, str] = {}
 
 
 def generate_report(analytics_data: dict) -> str:
@@ -71,8 +75,8 @@ Anomaly Detection: {anomalies.get('summary', 'No anomalies detected')}
 def _generate_with_gemini(data: dict) -> str:
     """Generate executive report using Google Gemini Flash."""
     context = _build_context_prompt(data)
-
-    model = chat_model()
+    if context in _REPORT_CACHE:
+        return _REPORT_CACHE[context]
 
     prompt = f"""You are a senior Business Intelligence analyst writing an executive summary report for a company.
 
@@ -89,8 +93,9 @@ Write a concise, professional analytical report (3-5 paragraphs). Requirements:
 
 Use bold (**text**) for key metrics. Write in flowing paragraphs, not bullet points. Be direct, data-driven, and insightful. Do NOT include a title or heading."""
 
-    response = model.generate_content(prompt)
-    return response.text
+    report = gemini.generate(prompt, temperature=0.4, max_wait=25)
+    _REPORT_CACHE[context] = report
+    return report
 
 
 def _generate_template_report(data: dict) -> str:

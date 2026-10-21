@@ -52,15 +52,24 @@ donut comes from the NLP service, which scored each open-ended answer as it arri
 
 ## What it does
 
-- **Survey builder:** 9 question types (short/long text, single/multiple choice, dropdown, 0–10 rating, number,
-  email, date), required fields, number ranges and branch logic ("show this only if Q2 = Yes"). A checklist
-  nudges you to add an open question and a rating so the AI insights have something to work with.
-- **Sentiment on every answer:** Gemini scores each open-ended answer from -1 to 1 and labels it. If Gemini is
-  unavailable, a lexicon fallback with negation handling takes over ("not good" is negative), so submissions never fail.
-- **Themes from real assignments:** Gemini names 3–5 themes *and assigns every answer to one*. Counts and percentages
-  are then computed in code from those assignments, not estimated by the model, and every quote shown is a verbatim answer.
+- **Survey builder:** 9 question types (short/long text, single/multiple choice, dropdown, rating, number,
+  email, date), required fields and number ranges. Ratings are either **0–10** (feeds NPS) or **1–5 stars**.
+  **Branch logic** takes any number of conditions per question, combined with *all* or *any*
+  (is / is not / contains / more than / less than / is answered). Rules follow their questions when you reorder or
+  delete, and a hidden question can't reveal its own follow-ups. A checklist nudges you to add an open question and a
+  rating so the AI insights have something to work with.
+- **Sentiment on every answer:** Gemini scores each open-ended answer from -1 to 1 and labels it. All open answers of
+  one submission are scored in **a single call**. If Gemini is unavailable, a lexicon fallback with negation handling
+  takes over ("not good" is negative), so submissions never fail.
+- **Themes from real assignments, for every answer:** Gemini names 3–5 themes on the first 300 answers *and assigns
+  each one*; any further answers are assigned to the same themes in batches of 300. Counts and percentages are computed
+  in code from those assignments, not estimated by the model, and every quote shown is a verbatim answer.
 - **Statistics:** mean, median, quartiles, spread, NPS (promoters / passives / detractors), CSAT and the score distribution,
-  plus z-score anomaly detection on scores and daily volume.
+  plus z-score anomaly detection on scores and daily volume. 1–5 answers are normalised to 0–10 for averages and CSAT;
+  only 0–10 questions count toward NPS, and "number" questions (like age) are never mixed into ratings.
+- **Built for the free tier:** every Gemini call goes through a client-side rate limiter (15 calls/min, 100 embedded
+  texts/min) and a 429 is retried once after the delay Google asks for. Embeddings, themes and reports are cached, and each
+  survey keeps a **persistent Pinecone namespace** where only new answers are embedded.
 - **Ask your data:** a chat where you type a question. The answer cites its sources, the cited answers are listed
   under it, a confidence level comes from retrieval similarity, and if the data can't answer the question it says so.
 - **Dashboards:** a cross-survey home page (14-day activity, overall mood, most-answered surveys) and a per-survey
@@ -92,8 +101,10 @@ Measured on the demo data (40 responses) with a free-tier Gemini key.
 | Are theme percentages real? | Yes. Every answer is assigned to exactly one theme, and counts come from those assignments; invalid or duplicate ids from the model are dropped and anything unassigned goes to "Other" |
 | Does the agent stay grounded? | Asked *"What is our Q3 revenue?"*, it answered that the survey has no revenue data and named what data would be needed |
 | Are answers traceable? | Every answer comes with the retrieved responses, numbered to match the `[n]` citations |
-| Latency | sentiment ≈ 1–2 s per answer, themes ≈ 2–3 s, a cited answer ≈ 4–12 s |
-| Free-tier quota | Embeddings and themes are cached per text, so reloading a page or asking a second question doesn't re-embed every answer |
+| Latency (free tier) | a submission ≈ 2–7 s, full survey analysis ≈ 10–25 s (themes + report, cached afterwards), a cited answer ≈ 5–20 s |
+| Free-tier quota | Seeding 40 responses: 1 Gemini call instead of 40. Analysing a survey and asking two questions: no 429s, no fallbacks |
+| Does retrieval scale? | Answers are embedded once per survey and kept in Pinecone; a later question only embeds the question itself |
+| Mixed rating scales | 2 stars on a 1–5 question reads as 4/10, and a survey with no 0–10 question shows no NPS instead of a misleading −100 |
 
 ## Running it
 
@@ -120,6 +131,14 @@ cd frontend && npm install && npm run dev         # http://localhost:5173
 cd backend && npm run seed                        # log in as demo@insightflow.test / demo1234
 ```
 
+**Tests** (no API keys or database needed; Gemini and Pinecone are mocked). They also run on every push via GitHub Actions.
+
+```bash
+cd ai_service && pip install -r requirements-dev.txt && python -m pytest -q   # 33 tests
+cd backend && npm test                                                        # rating scales, NPS
+cd frontend && npm test                                                       # branch logic
+```
+
 **`backend/.env`** (copy `backend/.env.example`)
 
 ```env
@@ -140,6 +159,9 @@ PINECONE_API_KEY=your_pinecone_key
 PINECONE_INDEX_NAME=insightflow-rag
 GEMINI_CHAT_MODEL=gemini-flash-lite-latest
 GEMINI_EMBED_MODEL=models/gemini-embedding-001
+GEMINI_RPM=14            # generate calls per minute (raise on a paid tier)
+GEMINI_EMBED_TPM=95      # embedded texts per minute
+THEME_BATCH_SIZE=300     # answers per theme-assignment call
 ```
 
 | Service      | URL |
@@ -162,21 +184,26 @@ GEMINI_EMBED_MODEL=models/gemini-embedding-001
 | `POST` | `/api/surveys/:id/analytics/ask` | ask a question, get a cited answer |
 | `GET`  | `/api/surveys/:id/analytics/export` | CSV export |
 
-AI service: `POST /api/analyze` (one answer), `POST /api/analytics/full` (whole survey), `POST /api/analytics/ask` (RAG).
+AI service: `POST /api/analyze` (one answer), `POST /api/analyze/batch` (all answers of a submission),
+`POST /api/analytics/full` (whole survey), `POST /api/analytics/ask` (RAG), `DELETE /api/index/:surveyId` (drop a survey's vectors).
 
 ## Project structure
 
 ```
-backend/      Express API: routes, controllers, MySQL models, schema.sql, scripts/seedDemo.js
-ai_service/   FastAPI app + engine/
-              ├─ semantic.py    Gemini sentiment, theme assignment, embeddings, Pinecone search
+backend/      Express API: routes, controllers, MySQL models, schema.sql, scripts/seedDemo.js,
+              utils/ratings.js (scales, NPS), tests/
+ai_service/   FastAPI app + engine/ + tests/
+              ├─ gemini.py      Gemini client: rate limiter, retry on 429, model config
+              ├─ semantic.py    batch sentiment, theme assignment, embeddings, per-survey Pinecone index
               ├─ rag.py         "Ask your data": retrieval + grounded, cited answers
               ├─ report.py      executive summary
               ├─ statistics.py  NPS, CSAT, descriptive stats, distribution
               └─ anomaly.py     z-score anomalies on scores and daily volume
 frontend/     React app: pages/ (Dashboard, Analytics, SurveyBuilder, TakeSurvey, auth),
-              components/ (AppLayout, AskYourData, QuestionCard, ui.jsx design system)
+              components/ (AppLayout, AskYourData, QuestionCard, ui.jsx design system),
+              utils/logic.js (branch logic) + logic.test.js
 docs/img/     screenshots
+.github/      CI: runs all three test suites and the frontend build
 ```
 
 ## Project status
@@ -184,10 +211,9 @@ docs/img/     screenshots
 **Working end to end:** build → collect → analyse → ask, verified against a live Gemini and Pinecone setup.
 
 **Limits, honestly:**
-- Themes are found on the first 300 open-ended answers of a survey.
-- Retrieval rebuilds a temporary Pinecone namespace per question rather than keeping a persistent index.
-- The free Gemini tier allows about 15 LLM calls a minute. When it runs out, sentiment uses the lexicon fallback
-  and answers fall back to templates, still with real numbers but less fluent.
-- Ratings use a 0–10 scale so NPS is meaningful; older data entered on a 1–5 scale would read as detractors.
-- Branch logic supports one "equals" condition per question.
-- There are no automated tests yet.
+- On the free Gemini tier a large survey is slow the first time (themes for 3,000 answers is ~10 calls, so about a
+  minute at 15 calls/min). Results are cached afterwards. If the *daily* quota runs out, sentiment uses the lexicon
+  fallback and answers use templates, still with real numbers but less fluent.
+- Caches live in the AI service's memory, so they reset when it restarts (the Pinecone index does not).
+- Ratings answered before scales existed are treated as 0–10.
+- The tests mock Gemini and Pinecone; the live integration was checked by hand, not in CI.
