@@ -4,17 +4,7 @@ Generates professional, evidence-backed analytical narratives from computed data
 Falls back to template-based generation if Gemini is unavailable.
 """
 
-import os
-import google.generativeai as genai
-
-
-def _configure_gemini():
-    """Configure Gemini with the API key from .env."""
-    api_key = os.getenv('GEMINI_API_KEY')
-    if api_key:
-        genai.configure(api_key=api_key)
-        return True
-    return False
+from engine.semantic import configure_gemini as _configure_gemini, chat_model
 
 
 def generate_report(analytics_data: dict) -> str:
@@ -54,7 +44,7 @@ Survey Title: {survey_title}
 Total Responses: {total}
 
 Statistical Metrics:
-- Average Rating: {stats.get('mean', 'N/A')} / 5
+- Average Rating: {stats.get('mean', 'N/A')} / 10
 - Median: {stats.get('median', 'N/A')}
 - Standard Deviation: {stats.get('std_dev', 'N/A')} (higher = more polarized opinions)
 - Skewness: {stats.get('skewness', 'N/A')} (negative = skewed toward higher ratings)
@@ -82,7 +72,7 @@ def _generate_with_gemini(data: dict) -> str:
     """Generate executive report using Google Gemini Flash."""
     context = _build_context_prompt(data)
 
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = chat_model()
 
     prompt = f"""You are a senior Business Intelligence analyst writing an executive summary report for a company.
 
@@ -128,7 +118,7 @@ def _generate_template_report(data: dict) -> str:
 
     paragraphs.append(
         f"**Overview**: {total} response{'s' if total != 1 else ''} collected for \"{survey_title}\". "
-        f"Average rating is **{mean}/5** with a standard deviation of **{std_dev}**, indicating "
+        f"Average rating is **{mean}/10** with a standard deviation of **{std_dev}**, indicating "
         f"{'consistent' if std_dev < 1 else 'varied'} customer experiences."
     )
 

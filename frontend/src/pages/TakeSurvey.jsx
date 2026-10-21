@@ -1,6 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { CheckCircle2, AlertTriangle, Loader2, Send, ArrowLeft } from 'lucide-react';
 import api from '../services/axios';
+import { ProgressBar } from '../components/ui';
+
+const choiceStyle = (selected) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '12px 14px',
+  borderRadius: 12,
+  cursor: 'pointer',
+  border: `1px solid ${selected ? 'var(--accent)' : 'var(--border-strong)'}`,
+  background: selected ? 'var(--accent-soft)' : 'var(--bg-shell)',
+  transition: 'all 0.15s',
+  fontSize: '0.9rem'
+});
 
 const TakeSurvey = () => {
   const { id } = useParams();
@@ -12,22 +27,13 @@ const TakeSurvey = () => {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    const fetchSurvey = async () => {
-      try {
-        const res = await api.get(`/surveys/${id}`);
-        setSurvey(res.data);
-      } catch (err) {
-        setError('Failed to load survey.');
-      }
-    };
-    fetchSurvey();
+    api.get(`/surveys/${id}`)
+      .then(res => setSurvey(res.data))
+      .catch(() => setError('Failed to load survey.'));
   }, [id]);
 
   const handleAnswerChange = (questionId, value) => {
-    setAnswers(prev => ({
-      ...prev,
-      [questionId]: value
-    }));
+    setAnswers(prev => ({ ...prev, [questionId]: value }));
   };
 
   const evaluateLogic = (question, allAnswers, allQuestions) => {
@@ -37,32 +43,25 @@ const TakeSurvey = () => {
     const targetQ = allQuestions[targetIdx];
     if (!targetQ) return true;
 
-    const targetAnswer = allAnswers[targetQ.id];
-    const conditionVal = question.logic.conditionValue;
-
-    // Simple equals check
-    return targetAnswer === conditionVal;
+    // Simple equals check (ratings are numbers, so compare as strings)
+    return String(allAnswers[targetQ.id] ?? '') === String(question.logic.conditionValue ?? '');
   };
 
   const validateAnswers = (visibleQuestions) => {
     for (const q of visibleQuestions) {
       const val = answers[q.id];
 
-      // Check required
-      if (q.is_required && (!val || val.length === 0)) {
-        return `Question "${q.question_text}" is required.`;
+      if (q.is_required && (val === undefined || val === null || val === '' || val.length === 0)) {
+        return `Please answer “${q.question_text}”.`;
       }
 
-      // Check validation rules
-      if (val && q.validation_rules) {
-        if (q.question_type === 'number') {
-          const num = parseFloat(val);
-          if (q.validation_rules.min && num < parseFloat(q.validation_rules.min)) {
-            return `Question "${q.question_text}" must be at least ${q.validation_rules.min}.`;
-          }
-          if (q.validation_rules.max && num > parseFloat(q.validation_rules.max)) {
-            return `Question "${q.question_text}" must be at most ${q.validation_rules.max}.`;
-          }
+      if (val && q.validation_rules && q.question_type === 'number') {
+        const num = parseFloat(val);
+        if (q.validation_rules.min && num < parseFloat(q.validation_rules.min)) {
+          return `“${q.question_text}” must be at least ${q.validation_rules.min}.`;
+        }
+        if (q.validation_rules.max && num > parseFloat(q.validation_rules.max)) {
+          return `“${q.question_text}” must be at most ${q.validation_rules.max}.`;
         }
       }
     }
@@ -75,14 +74,14 @@ const TakeSurvey = () => {
 
     setError('');
     const visibleQuestions = survey.questions.filter(q => evaluateLogic(q, answers, survey.questions));
-    
+
     const validationError = validateAnswers(visibleQuestions);
     if (validationError) {
       setError(validationError);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
-    // Format for backend
     const submissionData = visibleQuestions.map(q => ({
       question_id: q.id,
       answer_data: answers[q.id]
@@ -99,99 +98,145 @@ const TakeSurvey = () => {
     }
   };
 
-  if (error && !survey) return <div className="container" style={{ textAlign: 'center', marginTop: '2rem' }}>{error}</div>;
-  if (!survey) return <div className="container" style={{ textAlign: 'center', marginTop: '2rem' }}>Loading Survey...</div>;
-  if (success) return (
-    <div className="container animate-fade-in" style={{ textAlign: 'center', marginTop: '5rem' }}>
-      <div className="glass-panel" style={{ padding: '3rem', maxWidth: '600px', margin: '0 auto' }}>
-        <h1 style={{ color: '#4ade80' }}>Thank You!</h1>
-        <p>Your response has been recorded successfully.</p>
-        <button onClick={() => navigate('/dashboard')} className="btn btn-primary" style={{ marginTop: '2rem' }}>Return to Dashboard</button>
-      </div>
+  if (error && !survey) return <div className="alert"><AlertTriangle size={17} /> {error}</div>;
+  if (!survey) return (
+    <div style={{ display: 'grid', placeItems: 'center', minHeight: '50vh' }}>
+      <Loader2 size={30} className="spin" color="var(--accent)" />
     </div>
   );
 
+  if (success) return (
+    <div className="card fade-up" style={{ maxWidth: 520, margin: '60px auto', textAlign: 'center', padding: 40 }}>
+      <CheckCircle2 size={52} color="var(--accent)" style={{ marginBottom: 14 }} />
+      <h1>Thank you!</h1>
+      <p style={{ marginTop: 8 }}>Your response has been recorded.</p>
+      <button onClick={() => navigate('/dashboard')} className="btn btn-primary" style={{ marginTop: 24 }}>Back to dashboard</button>
+    </div>
+  );
+
+  const visible = survey.questions.filter(q => evaluateLogic(q, answers, survey.questions));
+  const answered = visible.filter(q => {
+    const v = answers[q.id];
+    return v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0);
+  }).length;
+  const progress = visible.length ? Math.round((answered / visible.length) * 100) : 0;
+
   return (
-    <div className="container animate-fade-in" style={{ maxWidth: '800px' }}>
-      <div className="glass-panel" style={{ padding: '2rem', marginBottom: '2rem' }}>
-        <h1 style={{ margin: 0, marginBottom: '0.5rem' }}>{survey.title}</h1>
-        {survey.description && <p>{survey.description}</p>}
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
+      <button className="btn btn-ghost btn-sm" style={{ marginBottom: 12, paddingLeft: 0 }} onClick={() => navigate('/dashboard')}>
+        <ArrowLeft size={15} /> Back
+      </button>
+
+      <div className="card fade-up" style={{ marginBottom: 14, position: 'sticky', top: 74, zIndex: 5 }}>
+        <h1 style={{ fontSize: '1.6rem' }}>{survey.title}</h1>
+        {survey.description && <p style={{ marginTop: 6 }}>{survey.description}</p>}
+        <div className="row" style={{ marginTop: 16, gap: 14 }}>
+          <div style={{ flex: 1 }}><ProgressBar thin value={progress} /></div>
+          <span className="muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{answered} of {visible.length} answered</span>
+        </div>
       </div>
 
-      {error && <div style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--danger-color)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>{error}</div>}
+      {error && <div className="alert" style={{ marginBottom: 14 }}><AlertTriangle size={17} /> {error}</div>}
 
       <form onSubmit={handleSubmit}>
-        {survey.questions.map((q, index) => {
-          const isVisible = evaluateLogic(q, answers, survey.questions);
-          if (!isVisible) return null;
-
-          return (
-            <div key={q.id} className="glass-panel animate-fade-in" style={{ padding: '2rem', marginBottom: '1.5rem' }}>
-              <h3 style={{ marginBottom: '1rem' }}>
-                {q.question_text} {q.is_required && <span style={{ color: 'var(--danger-color)' }}>*</span>}
+        {visible.map((q, index) => (
+          <div key={q.id} className="card fade-up" style={{ marginBottom: 14 }}>
+            <div className="row" style={{ alignItems: 'flex-start', marginBottom: 14 }}>
+              <span className="pill accent">{index + 1}</span>
+              <h3 style={{ fontSize: '1.02rem', lineHeight: 1.4 }}>
+                {q.question_text} {!!q.is_required && <span style={{ color: 'var(--accent)' }}>*</span>}
               </h3>
-              
-              {q.question_type === 'short_text' && (
-                <input type="text" className="form-input" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
-              )}
-              
-              {q.question_type === 'long_text' && (
-                <textarea className="form-input" style={{ minHeight: '100px', resize: 'vertical' }} value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
-              )}
-              
-              {q.question_type === 'number' && (
-                <input type="number" className="form-input" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
-              )}
-
-              {q.question_type === 'email' && (
-                <input type="email" className="form-input" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
-              )}
-              
-              {q.question_type === 'date' && (
-                <input type="date" className="form-input" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
-              )}
-
-              {q.question_type === 'radio' && q.options && q.options.map((opt, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                  <input type="radio" id={`q-${q.id}-opt-${i}`} name={`q-${q.id}`} value={opt} checked={answers[q.id] === opt} onChange={e => handleAnswerChange(q.id, e.target.value)} />
-                  <label htmlFor={`q-${q.id}-opt-${i}`}>{opt}</label>
-                </div>
-              ))}
-
-              {q.question_type === 'checkbox' && q.options && q.options.map((opt, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                  <input 
-                    type="checkbox" 
-                    id={`q-${q.id}-opt-${i}`} 
-                    value={opt} 
-                    checked={(answers[q.id] || []).includes(opt)} 
-                    onChange={e => {
-                      const currentAnswers = answers[q.id] || [];
-                      if (e.target.checked) {
-                        handleAnswerChange(q.id, [...currentAnswers, opt]);
-                      } else {
-                        handleAnswerChange(q.id, currentAnswers.filter(a => a !== opt));
-                      }
-                    }} 
-                  />
-                  <label htmlFor={`q-${q.id}-opt-${i}`}>{opt}</label>
-                </div>
-              ))}
-
-              {q.question_type === 'dropdown' && q.options && (
-                <select className="form-input" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)}>
-                  <option value="">Select an option</option>
-                  {q.options.map((opt, i) => (
-                    <option key={i} value={opt}>{opt}</option>
-                  ))}
-                </select>
-              )}
             </div>
-          );
-        })}
 
-        <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }} disabled={isSubmitting}>
-          {isSubmitting ? 'Submitting...' : 'Submit Survey'}
+            {q.question_type === 'short_text' && (
+              <input type="text" className="form-input" placeholder="Your answer" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
+            )}
+
+            {q.question_type === 'long_text' && (
+              <textarea className="form-input" placeholder="Tell us more…" style={{ minHeight: 110, resize: 'vertical' }} value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
+            )}
+
+            {q.question_type === 'number' && (
+              <input type="number" className="form-input" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
+            )}
+
+            {q.question_type === 'email' && (
+              <input type="email" className="form-input" placeholder="name@example.com" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
+            )}
+
+            {q.question_type === 'date' && (
+              <input type="date" className="form-input" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
+            )}
+
+            {q.question_type === 'rating' && (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(11, minmax(0, 1fr))', gap: 6 }}>
+                  {Array.from({ length: 11 }, (_, n) => (
+                    <button
+                      type="button"
+                      key={n}
+                      onClick={() => handleAnswerChange(q.id, n)}
+                      aria-pressed={answers[q.id] === n}
+                      style={{
+                        ...choiceStyle(answers[q.id] === n),
+                        justifyContent: 'center',
+                        padding: '12px 0',
+                        fontWeight: 700,
+                        color: answers[q.id] === n ? '#fff' : 'var(--text-2)',
+                        background: answers[q.id] === n ? 'var(--accent)' : 'var(--bg-shell)'
+                      }}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <div className="row muted" style={{ justifyContent: 'space-between', fontSize: '0.76rem', marginTop: 8 }}>
+                  <span>Not at all likely</span><span>Extremely likely</span>
+                </div>
+              </div>
+            )}
+
+            {q.question_type === 'radio' && q.options && (
+              <div className="stack" style={{ gap: 8 }}>
+                {q.options.map((opt, i) => (
+                  <label key={i} style={choiceStyle(answers[q.id] === opt)}>
+                    <input type="radio" name={`q-${q.id}`} value={opt} checked={answers[q.id] === opt} onChange={e => handleAnswerChange(q.id, e.target.value)} />
+                    {opt}
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {q.question_type === 'checkbox' && q.options && (
+              <div className="stack" style={{ gap: 8 }}>
+                {q.options.map((opt, i) => {
+                  const current = answers[q.id] || [];
+                  return (
+                    <label key={i} style={choiceStyle(current.includes(opt))}>
+                      <input
+                        type="checkbox"
+                        value={opt}
+                        checked={current.includes(opt)}
+                        onChange={e => handleAnswerChange(q.id, e.target.checked ? [...current, opt] : current.filter(a => a !== opt))}
+                      />
+                      {opt}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {q.question_type === 'dropdown' && q.options && (
+              <select className="form-input" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)}>
+                <option value="">Select an option</option>
+                {q.options.map((opt, i) => <option key={i} value={opt}>{opt}</option>)}
+              </select>
+            )}
+          </div>
+        ))}
+
+        <button type="submit" className="btn btn-primary btn-block" style={{ padding: 14, fontSize: '0.95rem' }} disabled={isSubmitting}>
+          {isSubmitting ? <><Loader2 size={16} className="spin" /> Submitting…</> : <><Send size={16} /> Submit answers</>}
         </button>
       </form>
     </div>

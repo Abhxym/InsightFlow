@@ -15,7 +15,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 # Add engine to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from engine.semantic import discover_themes
+from engine.semantic import discover_themes, score_sentiment
 from engine.statistics import (
     compute_nps, compute_csat, compute_descriptive_stats,
     compute_response_distribution, compute_time_trends
@@ -62,12 +62,8 @@ async def analyze_single(req: AnalyzeSingleRequest):
     """Quick per-response analysis on submission."""
     text_lower = req.text.lower()
 
-    # Sentiment
-    positive_words = ['good', 'great', 'excellent', 'amazing', 'love', 'best', 'awesome', 'happy', 'perfect', 'fast', 'easy']
-    negative_words = ['bad', 'terrible', 'worst', 'awful', 'hate', 'poor', 'sad', 'angry', 'slow', 'broken', 'late', 'expensive']
-    pos = sum(1 for w in positive_words if w in text_lower)
-    neg = sum(1 for w in negative_words if w in text_lower)
-    sentiment = 'Positive' if pos > neg else 'Negative' if neg > pos else 'Neutral'
+    # Sentiment (-1..1 score + label)
+    sentiment = score_sentiment(req.text)
 
     # Topics
     topic_keywords = {
@@ -78,7 +74,7 @@ async def analyze_single(req: AnalyzeSingleRequest):
     }
     detected_topic, max_matches = 'Other', 0
     for topic, kws in topic_keywords.items():
-        matches = sum(1 for kw in kws if kw in text_lower)
+        matches = sum(1 for kw in kws if re.search(rf'\b{kw}\b', text_lower))
         if matches > max_matches:
             max_matches, detected_topic = matches, topic
 
@@ -87,7 +83,7 @@ async def analyze_single(req: AnalyzeSingleRequest):
     stop_words = {'about', 'there', 'their', 'which', 'would', 'could', 'should', 'these'}
     keywords = list(set([w for w in words if w not in stop_words]))[:5]
 
-    return {'sentiment': sentiment, 'topic': detected_topic, 'keywords': keywords}
+    return {**sentiment, 'topic': detected_topic, 'keywords': keywords}
 
 # ─────────────────────────────────────────────
 # 2. FULL AI ANALYTICS ENGINE
@@ -112,7 +108,7 @@ async def full_analytics(req: FullAnalyticsRequest):
     # 2. Statistical Analytics
     statistics = compute_descriptive_stats(numeric_scores) if numeric_scores else {}
     nps = compute_nps(numeric_scores) if numeric_scores else {}
-    csat = compute_csat(numeric_scores) if numeric_scores else {}
+    csat = compute_csat(numeric_scores, scale_max=10) if numeric_scores else {}
     distribution = compute_response_distribution(numeric_scores) if numeric_scores else []
     time_trends = compute_time_trends(req.timestamps)
 

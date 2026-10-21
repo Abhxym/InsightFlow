@@ -1,24 +1,41 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { Sparkles, ArrowUp, Quote, ShieldCheck } from 'lucide-react';
 import api from '../services/axios';
+import { renderRichText } from './ui';
+
+const SUGGESTIONS = [
+  'What are the top complaints?',
+  'What do people like most?',
+  'Summarize the overall sentiment',
+  'Explain the NPS score',
+  'Show me negative responses',
+  'What should we fix first?'
+];
+
+const CONFIDENCE = {
+  high: { label: 'High confidence', className: 'positive' },
+  medium: { label: 'Medium confidence', className: 'accent' },
+  low: { label: 'Low confidence', className: 'negative' }
+};
 
 const AskYourData = ({ surveyId }) => {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: "Hi! I'm your **AI Data Analyst**. Ask me anything about this survey's responses.\n\nTry: *\"What are the top complaints?\"*, *\"Why did satisfaction drop?\"*, or *\"Show me negative responses.\"*"
+      content: "Hi! I'm your **AI analyst**. Ask me anything about this survey in plain English — I'll answer from the responses and show you exactly which ones I used."
     }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const bottomRef = useRef(null);
+  const scrollRef = useRef(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, loading]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
-    const question = input.trim();
+  const ask = async (text) => {
+    const question = (text ?? input).trim();
+    if (!question || loading) return;
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: question }]);
     setLoading(true);
@@ -26,22 +43,16 @@ const AskYourData = ({ surveyId }) => {
     try {
       const res = await api.post(`/surveys/${surveyId}/analytics/ask`, { question });
       const { answer, supporting_responses, confidence } = res.data;
-
-      let fullAnswer = answer;
-      if (supporting_responses && supporting_responses.length > 0) {
-        fullAnswer += '\n\n**Most Relevant Responses:**\n' +
-          supporting_responses.map((r, i) => `${i + 1}. *"${r.text}"*`).join('\n');
-      }
-
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: fullAnswer,
+        content: answer,
+        sources: supporting_responses || [],
         confidence
       }]);
-    } catch (err) {
+    } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '⚠️ Could not connect to AI analyst. Make sure the Python service is running.',
+        content: 'I could not reach the AI service. Make sure the Python service is running on port 5001.',
         isError: true
       }]);
     } finally {
@@ -52,137 +63,107 @@ const AskYourData = ({ surveyId }) => {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      ask();
     }
   };
 
-  const renderMessage = (content) => {
-    // Simple markdown-like rendering
-    return content
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/\n/g, '<br/>');
-  };
-
-  const confidenceColor = { high: '#4ade80', medium: '#facc15', low: '#f87171' };
-
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '500px',
-      background: 'rgba(17, 24, 39, 0.9)',
-      border: '1px solid rgba(139, 92, 246, 0.3)',
-      borderRadius: '20px',
-      overflow: 'hidden'
-    }}>
-      {/* Header */}
-      <div style={{
-        padding: '1.25rem 1.5rem',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-        background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(236,72,153,0.15))',
-        display: 'flex', alignItems: 'center', gap: '0.75rem'
-      }}>
-        <div style={{
-          width: 36, height: 36, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '1.1rem'
-        }}>🤖</div>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: '1rem' }}>Ask Your Data</div>
-          <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Powered by RAG + Semantic Search</div>
+    <div className="grid grid-main" style={{ alignItems: 'start' }}>
+      <div className="card" style={{ padding: 0, display: 'flex', flexDirection: 'column', height: 620, overflow: 'hidden' }}>
+        <div className="row" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+          <span className="brand-mark" style={{ width: 36, height: 36 }}><Sparkles size={18} /></span>
+          <div>
+            <div style={{ fontWeight: 700 }}>Ask your data</div>
+            <div className="muted" style={{ fontSize: '0.76rem' }}>Answers come only from this survey’s responses</div>
+          </div>
+          <span className="pill" style={{ marginLeft: 'auto' }}><ShieldCheck size={13} /> Cited answers</span>
+        </div>
+
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {messages.map((msg, i) => (
+            <div key={i} className="fade-up" style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <div style={{
+                maxWidth: '86%',
+                padding: '12px 16px',
+                borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                background: msg.role === 'user' ? 'var(--accent)' : msg.isError ? 'rgba(229,96,79,0.1)' : 'var(--surface-2)',
+                border: msg.role === 'user' ? 'none' : '1px solid var(--border)',
+                color: msg.role === 'user' ? '#fff' : 'var(--text)',
+                fontSize: '0.9rem',
+                lineHeight: 1.65
+              }}>
+                <div className="prose" style={{ color: 'inherit', fontSize: 'inherit' }} dangerouslySetInnerHTML={{ __html: renderRichText(msg.content) }} />
+
+                {msg.sources?.length > 0 && (
+                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className="muted" style={{ fontSize: '0.74rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Sources · survey responses
+                    </div>
+                    {msg.sources.map((s, j) => (
+                      <div key={j} className="row" style={{ alignItems: 'flex-start', gap: 8, fontSize: '0.82rem', color: 'var(--text-2)' }}>
+                        <span className="pill accent" style={{ padding: '1px 7px' }}>{j + 1}</span>
+                        <span style={{ fontStyle: 'italic' }}>“{s.text}”</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {msg.confidence && CONFIDENCE[msg.confidence] && (
+                  <span className={`pill ${CONFIDENCE[msg.confidence].className}`} style={{ marginTop: 10 }}>
+                    {CONFIDENCE[msg.confidence].label}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="row" style={{ gap: 6, padding: '8px 4px' }}>
+              {[0, 1, 2].map(i => (
+                <span key={i} style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+              ))}
+              <span className="muted" style={{ fontSize: '0.8rem', marginLeft: 6 }}>Reading the responses…</span>
+            </div>
+          )}
+        </div>
+
+        <div className="row" style={{ padding: 14, borderTop: '1px solid var(--border)' }}>
+          <textarea
+            className="form-input"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask anything, e.g. “Why are people unhappy with delivery?”"
+            rows={1}
+            style={{ resize: 'none', borderRadius: 999, padding: '12px 18px' }}
+          />
+          <button className="icon-btn" style={{ background: 'var(--accent)', borderColor: 'var(--accent)', color: '#fff', width: 44, height: 44 }}
+            onClick={() => ask()} disabled={loading || !input.trim()} aria-label="Send question">
+            <ArrowUp size={18} />
+          </button>
         </div>
       </div>
 
-      {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        {messages.map((msg, i) => (
-          <div key={i} style={{
-            display: 'flex',
-            justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
-          }}>
-            <div style={{
-              maxWidth: '85%',
-              padding: '0.875rem 1.25rem',
-              borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-              background: msg.role === 'user'
-                ? 'linear-gradient(135deg, #8b5cf6, #ec4899)'
-                : msg.isError ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.05)',
-              border: msg.role === 'assistant' ? '1px solid rgba(255,255,255,0.08)' : 'none',
-              fontSize: '0.9rem',
-              lineHeight: 1.6,
-              color: '#f8fafc'
-            }}>
-              <div dangerouslySetInnerHTML={{ __html: renderMessage(msg.content) }} />
-              {msg.confidence && (
-                <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: confidenceColor[msg.confidence] }}>
-                  Confidence: {msg.confidence}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-        {loading && (
-          <div style={{ display: 'flex', gap: '0.4rem', padding: '0.5rem 1rem' }}>
-            {[0, 1, 2].map(i => (
-              <div key={i} style={{
-                width: 8, height: 8, borderRadius: '50%',
-                background: '#8b5cf6',
-                animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`
-              }} />
+      <div className="stack">
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 12 }}>Try asking</div>
+          <div className="stack" style={{ gap: 8 }}>
+            {SUGGESTIONS.map(q => (
+              <button key={q} className="list-row" style={{ cursor: 'pointer', color: 'var(--text-2)', font: 'inherit', fontSize: '0.86rem', textAlign: 'left', padding: '11px 14px' }}
+                onClick={() => ask(q)} disabled={loading}>
+                <Quote size={14} color="var(--accent)" /> {q}
+              </button>
             ))}
           </div>
-        )}
-        <div ref={bottomRef} />
+        </div>
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 8 }}>How answers stay reliable</div>
+          <p style={{ fontSize: '0.84rem' }}>
+            Your question is matched against every response by meaning (Gemini embeddings + Pinecone).
+            The most relevant ones are handed to the AI, which must answer only from them and cite them as [1], [2]…
+            If the data can’t answer, it says so.
+          </p>
+        </div>
       </div>
-
-      {/* Input */}
-      <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: '0.75rem' }}>
-        <textarea
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask anything about your data..."
-          rows={1}
-          style={{
-            flex: 1,
-            padding: '0.75rem 1rem',
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '12px',
-            color: '#f8fafc',
-            fontSize: '0.9rem',
-            resize: 'none',
-            fontFamily: 'inherit',
-            outline: 'none'
-          }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={loading || !input.trim()}
-          style={{
-            padding: '0.75rem 1.25rem',
-            background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
-            border: 'none',
-            borderRadius: '12px',
-            color: '#fff',
-            fontWeight: 700,
-            cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
-            opacity: loading || !input.trim() ? 0.5 : 1,
-            fontSize: '1rem'
-          }}
-        >
-          ↑
-        </button>
-      </div>
-
-      <style>{`
-        @keyframes bounce {
-          0%, 80%, 100% { transform: scale(0); }
-          40% { transform: scale(1); }
-        }
-      `}</style>
     </div>
   );
 };

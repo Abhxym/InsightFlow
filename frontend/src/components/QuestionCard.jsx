@@ -1,24 +1,32 @@
-import React from 'react';
+import { ChevronUp, ChevronDown, Trash2, Plus, X, GitBranch, SlidersHorizontal } from 'lucide-react';
 
-const questionTypes = [
-  { value: 'short_text', label: 'Short Text' },
-  { value: 'long_text', label: 'Long Text' },
-  { value: 'radio', label: 'Single Choice (Radio)' },
-  { value: 'checkbox', label: 'Multiple Choice (Checkbox)' },
+export const questionTypes = [
+  { value: 'short_text', label: 'Short text' },
+  { value: 'long_text', label: 'Long text' },
+  { value: 'radio', label: 'Single choice' },
+  { value: 'checkbox', label: 'Multiple choice' },
   { value: 'dropdown', label: 'Dropdown' },
-  { value: 'rating', label: 'Rating' },
+  { value: 'rating', label: 'Rating (0–10)' },
   { value: 'number', label: 'Number' },
   { value: 'email', label: 'Email' },
   { value: 'date', label: 'Date' }
 ];
 
+const subPanel = {
+  marginTop: 16,
+  padding: 14,
+  borderRadius: 14,
+  background: 'var(--bg-shell)',
+  border: '1px solid var(--border)'
+};
+
 const QuestionCard = ({ question, index, updateQuestion, removeQuestion, moveQuestion, allQuestions }) => {
-  
+
   const handleTypeChange = (e) => {
     const type = e.target.value;
     const isChoiceType = ['radio', 'checkbox', 'dropdown'].includes(type);
-    updateQuestion(index, { 
-      ...question, 
+    updateQuestion(index, {
+      ...question,
       question_type: type,
       options: isChoiceType ? (question.options || ['Option 1']) : null,
       validation_rules: null,
@@ -42,8 +50,8 @@ const QuestionCard = ({ question, index, updateQuestion, removeQuestion, moveQue
   };
 
   const handleValidationChange = (field, value) => {
-    updateQuestion(index, { 
-      ...question, 
+    updateQuestion(index, {
+      ...question,
       validation_rules: { ...(question.validation_rules || {}), [field]: value }
     });
   };
@@ -59,122 +67,77 @@ const QuestionCard = ({ question, index, updateQuestion, removeQuestion, moveQue
   const prevQuestions = allQuestions.slice(0, index);
 
   return (
-    <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '1.5rem', position: 'relative' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-        <h3 style={{ margin: 0 }}>Question {index + 1}</h3>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button type="button" onClick={() => moveQuestion(index, -1)} className="btn" style={{ padding: '0.2rem 0.5rem' }}>↑</button>
-          <button type="button" onClick={() => moveQuestion(index, 1)} className="btn" style={{ padding: '0.2rem 0.5rem' }}>↓</button>
-          <button type="button" onClick={() => removeQuestion(index)} className="btn" style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--danger-color)', padding: '0.2rem 0.5rem' }}>✕</button>
+    <div className="card fade-up" style={{ marginBottom: 14 }}>
+      <div className="card-head">
+        <div className="row">
+          <span className="pill accent">Q{index + 1}</span>
+          <span className="muted" style={{ fontSize: '0.8rem' }}>{questionTypes.find(t => t.value === question.question_type)?.label}</span>
+        </div>
+        <div className="row" style={{ gap: 6 }}>
+          <button type="button" className="icon-btn sm" onClick={() => moveQuestion(index, -1)} aria-label="Move up"><ChevronUp size={15} /></button>
+          <button type="button" className="icon-btn sm" onClick={() => moveQuestion(index, 1)} aria-label="Move down"><ChevronDown size={15} /></button>
+          <button type="button" className="icon-btn sm" onClick={() => removeQuestion(index)} aria-label="Delete question" style={{ color: 'var(--negative)' }}><Trash2 size={14} /></button>
         </div>
       </div>
 
-      <div className="form-group">
-        <input 
-          type="text" 
-          className="form-input" 
-          placeholder="Enter your question" 
-          value={question.question_text}
-          onChange={(e) => updateQuestion(index, { ...question, question_text: e.target.value })}
-          required
-        />
-      </div>
+      <input
+        type="text"
+        className="form-input"
+        placeholder="Type your question…"
+        style={{ fontSize: '1rem', fontWeight: 600 }}
+        value={question.question_text}
+        onChange={(e) => updateQuestion(index, { ...question, question_text: e.target.value })}
+        required
+      />
 
-      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-        <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-          <select 
-            className="form-input" 
-            value={question.question_type} 
-            onChange={handleTypeChange}
-          >
-            {questionTypes.map(t => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <input 
-            type="checkbox" 
-            id={`req-${index}`} 
-            checked={question.is_required}
-            onChange={(e) => updateQuestion(index, { ...question, is_required: e.target.checked })}
-          />
-          <label htmlFor={`req-${index}`} style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Required</label>
-        </div>
+      <div className="row" style={{ marginTop: 12, gap: 12 }}>
+        <select className="form-input" value={question.question_type} onChange={handleTypeChange} style={{ flex: 1 }}>
+          {questionTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        <label className="row" style={{ gap: 8, fontSize: '0.84rem', color: 'var(--text-2)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={!!question.is_required} onChange={(e) => updateQuestion(index, { ...question, is_required: e.target.checked })} />
+          Required
+        </label>
       </div>
 
       {['radio', 'checkbox', 'dropdown'].includes(question.question_type) && question.options && (
-        <div style={{ marginTop: '1.5rem', paddingLeft: '1rem', borderLeft: '2px solid var(--border-color)' }}>
-          <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Options</p>
+        <div style={subPanel}>
+          <div className="form-label">Answer options</div>
           {question.options.map((opt, optIndex) => (
-            <div key={optIndex} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-              <input 
-                type="text" 
-                className="form-input" 
-                style={{ padding: '0.4rem 0.8rem' }}
-                value={opt} 
-                onChange={(e) => handleOptionChange(optIndex, e.target.value)}
-              />
+            <div key={optIndex} className="row" style={{ marginBottom: 8 }}>
+              <span className="dot" style={{ background: 'var(--accent)' }} />
+              <input type="text" className="form-input" style={{ padding: '8px 12px' }} value={opt} onChange={(e) => handleOptionChange(optIndex, e.target.value)} />
               {question.options.length > 1 && (
-                <button type="button" onClick={() => removeOption(optIndex)} className="btn" style={{ padding: '0.2rem 0.5rem' }}>✕</button>
+                <button type="button" className="icon-btn sm" onClick={() => removeOption(optIndex)} aria-label="Remove option"><X size={14} /></button>
               )}
             </div>
           ))}
-          <button type="button" onClick={addOption} className="btn" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-            + Add Option
-          </button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={addOption}><Plus size={14} /> Add option</button>
         </div>
       )}
 
-      {/* Validation Rules */}
-      {['number'].includes(question.question_type) && (
-        <div style={{ marginTop: '1.5rem', paddingLeft: '1rem', borderLeft: '2px solid var(--primary-color)' }}>
-          <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Validation Rules</p>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <input 
-              type="number" 
-              className="form-input" 
-              placeholder="Min value"
-              value={question.validation_rules?.min || ''}
-              onChange={(e) => handleValidationChange('min', e.target.value)}
-            />
-            <input 
-              type="number" 
-              className="form-input" 
-              placeholder="Max value"
-              value={question.validation_rules?.max || ''}
-              onChange={(e) => handleValidationChange('max', e.target.value)}
-            />
+      {question.question_type === 'number' && (
+        <div style={subPanel}>
+          <div className="form-label row" style={{ gap: 6 }}><SlidersHorizontal size={13} /> Allowed range</div>
+          <div className="row">
+            <input type="number" className="form-input" placeholder="Min" value={question.validation_rules?.min || ''} onChange={(e) => handleValidationChange('min', e.target.value)} />
+            <input type="number" className="form-input" placeholder="Max" value={question.validation_rules?.max || ''} onChange={(e) => handleValidationChange('max', e.target.value)} />
           </div>
         </div>
       )}
 
-      {/* Logic / Branching */}
       {index > 0 && (
-        <div style={{ marginTop: '1.5rem', paddingLeft: '1rem', borderLeft: '2px solid #a855f7' }}>
-          <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Branch Logic (Show this question if...)</p>
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-            <select 
-              className="form-input" 
-              value={question.logic?.conditionQuestionIndex ?? ''}
-              onChange={(e) => handleLogicChange('conditionQuestionIndex', e.target.value)}
-            >
-              <option value="">Always Show</option>
+        <div style={subPanel}>
+          <div className="form-label row" style={{ gap: 6 }}><GitBranch size={13} /> Show this question…</div>
+          <div className="row wrap">
+            <select className="form-input" style={{ flex: 1, minWidth: 180 }} value={question.logic?.conditionQuestionIndex ?? ''} onChange={(e) => handleLogicChange('conditionQuestionIndex', e.target.value)}>
+              <option value="">Always</option>
               {prevQuestions.map((pq, pqIdx) => (
-                <option key={pqIdx} value={pqIdx}>Question {pqIdx + 1}: {pq.question_text.substring(0,20)}...</option>
+                <option key={pqIdx} value={pqIdx}>Only if Q{pqIdx + 1} ({pq.question_text.substring(0, 24) || 'untitled'}) equals…</option>
               ))}
             </select>
             {question.logic?.conditionQuestionIndex !== undefined && question.logic?.conditionQuestionIndex !== '' && (
-              <>
-                <span style={{ fontSize: '0.9rem' }}>equals</span>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="Value (e.g. Yes)"
-                  value={question.logic?.conditionValue || ''}
-                  onChange={(e) => handleLogicChange('conditionValue', e.target.value)}
-                />
-              </>
+              <input type="text" className="form-input" style={{ flex: 1, minWidth: 140 }} placeholder="Value, e.g. Yes" value={question.logic?.conditionValue || ''} onChange={(e) => handleLogicChange('conditionValue', e.target.value)} />
             )}
           </div>
         </div>

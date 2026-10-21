@@ -1,5 +1,5 @@
 const express = require('express');
-const { createSurvey, getMySurveys, getSurvey, removeSurvey } = require('../controllers/surveyController');
+const { createSurvey, getMySurveys, getOverview, getSurvey, removeSurvey } = require('../controllers/surveyController');
 const { protect } = require('../middlewares/authMiddleware');
 const responseRoutes = require('./responseRoutes');
 const analyticsRoutes = require('./analyticsRoutes');
@@ -12,6 +12,8 @@ router.use('/:surveyId/analytics', analyticsRoutes);
 router.route('/')
   .post(protect, createSurvey)
   .get(protect, getMySurveys);
+
+router.get('/overview', protect, getOverview);
 
 router.route('/:id')
   .get(protect, getSurvey)

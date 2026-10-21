@@ -1,4 +1,4 @@
-const { saveSurvey, getSurveysByCreator, getSurveyById, deleteSurvey } = require('../models/surveyModel');
+const { saveSurvey, getSurveysByCreator, getCreatorOverview, getSurveyById, deleteSurvey } = require('../models/surveyModel');
 
 const createSurvey = async (req, res, next) => {
   try {
@@ -21,6 +21,15 @@ const getMySurveys = async (req, res, next) => {
     const creatorId = req.user.id;
     const surveys = await getSurveysByCreator(creatorId);
     res.json(surveys);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getOverview = async (req, res, next) => {
+  try {
+    const overview = await getCreatorOverview(req.user.id);
+    res.json(overview);
   } catch (error) {
     next(error);
   }
@@ -54,6 +63,7 @@ const removeSurvey = async (req, res, next) => {
 module.exports = {
   createSurvey,
   getMySurveys,
+  getOverview,
   getSurvey,
   removeSurvey
 };
