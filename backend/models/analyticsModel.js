@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { collectRatings, computeNps } = require('../utils/ratings');
 
 const getSurveyAnalytics = async (surveyId) => {
   // 1. Get Survey metadata
@@ -7,7 +8,7 @@ const getSurveyAnalytics = async (surveyId) => {
   const survey = surveyRows[0];
 
   // 2. Get Questions
-  const [questionRows] = await pool.execute('SELECT id, question_text, question_type, options FROM questions WHERE survey_id = ? ORDER BY order_index ASC', [surveyId]);
+  const [questionRows] = await pool.execute('SELECT id, question_text, question_type, options, validation_rules FROM questions WHERE survey_id = ? ORDER BY order_index ASC', [surveyId]);
   
   // 3. Get Responses Data
   const [responseRows] = await pool.execute(`
@@ -20,12 +21,8 @@ const getSurveyAnalytics = async (surveyId) => {
   // Aggregate Data
   const totalResponses = new Set(responseRows.map(r => r.response_id)).size;
   
-  // Calculate Avg Rating (assuming rating questions exist)
-  let totalRatingScore = 0;
-  let ratingCount = 0;
-  let promoters = 0;
-  let detractors = 0;
-  let npsTotal = 0;
+  // Rating answers, normalised later (1–5 and 0–10 scales can be mixed)
+  const ratingAnswers = [];
 
   // Chart Data structures
   const choiceDistribution = {};
@@ -68,17 +65,8 @@ const getSurveyAnalytics = async (surveyId) => {
     }
 
     // Track Ratings
-    if (q.question_type === 'rating' || q.question_type === 'number') {
-      const num = parseFloat(parsedAnswer);
-      if (!isNaN(num)) {
-        totalRatingScore += num;
-        ratingCount += 1;
-        if (num >= 0 && num <= 10) {
-            npsTotal++;
-            if (num >= 9) promoters++;
-            else if (num <= 6) detractors++;
-        }
-      }
+    if (q.question_type === 'rating') {
+      ratingAnswers.push({ question: q, value: parsedAnswer });
     }
 
     // AI Insights Tracking
@@ -103,8 +91,9 @@ const getSurveyAnalytics = async (surveyId) => {
   });
 
   // Finalize aggregations
-  const averageRating = ratingCount > 0 ? (totalRatingScore / ratingCount).toFixed(2) : 0;
-  const npsScore = npsTotal > 0 ? Math.round(((promoters - detractors) / npsTotal) * 100) : null;
+  const { scores: ratingScores, npsScores } = collectRatings(ratingAnswers);
+  const averageRating = ratingScores.length ? (ratingScores.reduce((a, b) => a + b, 0) / ratingScores.length).toFixed(2) : 0;
+  const npsScore = computeNps(npsScores);
 
   // Format charts
   const timelineData = Object.keys(responsesOverTime).sort().map(date => ({
@@ -145,7 +134,9 @@ const getSurveyAnalytics = async (surveyId) => {
       topicData,
       topKeywords
     },
-    rawResponses
+    rawResponses,
+    ratingScores,
+    npsScores
   };
 };
 

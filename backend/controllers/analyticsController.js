@@ -15,7 +15,6 @@ const fetchAnalytics = async (req, res, next) => {
 
     // Collect text responses for AI engine
     const textResponses = [];
-    const numericScores = [];
     const timestamps = [];
     const sentimentCounts = { Positive: 0, Negative: 0, Neutral: 0 };
 
@@ -35,10 +34,6 @@ const fetchAnalytics = async (req, res, next) => {
           if (['short_text', 'long_text'].includes(q.question_type) && typeof answer === 'string' && answer.trim()) {
             textResponses.push(answer.trim());
           }
-          if (['rating', 'number'].includes(q.question_type)) {
-            const num = parseFloat(answer);
-            if (!isNaN(num)) numericScores.push(num);
-          }
         });
       });
     }
@@ -57,10 +52,11 @@ const fetchAnalytics = async (req, res, next) => {
         survey_title: data.survey.title,
         total_responses: data.kpis.totalResponses,
         text_responses: textResponses,
-        numeric_scores: numericScores,
+        numeric_scores: data.ratingScores,
+        nps_scores: data.npsScores,
         timestamps: timestamps,
         sentiment_counts: sentimentCounts
-      }, { timeout: 30000 });
+      }, { timeout: 120000 });
       aiEngineResult = aiResponse.data;
     } catch (aiError) {
       console.warn('AI Engine unavailable, returning base analytics:', aiError.message);
@@ -98,6 +94,7 @@ const askData = async (req, res, next) => {
 
     const aiResponse = await axios.post('http://localhost:5001/api/analytics/ask', {
       question,
+      survey_id: surveyId,
       text_responses: textResponses,
       analytics: {
         survey_title: data.survey.title,
@@ -108,7 +105,7 @@ const askData = async (req, res, next) => {
         themes: [],
         anomalies: {}
       }
-    }, { timeout: 15000 });
+    }, { timeout: 90000 });
 
     res.json(aiResponse.data);
   } catch (error) {

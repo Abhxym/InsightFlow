@@ -76,7 +76,9 @@ const getCreatorOverview = async (creatorId) => {
   );
 
   const [[rating]] = await pool.execute(
-    `SELECT AVG(CAST(JSON_UNQUOTE(qr.answer) AS DECIMAL(10,2))) AS avg_rating
+    // 1–5 scale answers are doubled so every rating averages on a 0–10 scale
+    `SELECT AVG(CAST(JSON_UNQUOTE(qr.answer) AS DECIMAL(10,2))
+               * IF(JSON_EXTRACT(q.validation_rules, '$.scale') = 5, 2, 1)) AS avg_rating
      FROM question_responses qr
      JOIN questions q ON q.id = qr.question_id
      JOIN surveys s ON s.id = q.survey_id

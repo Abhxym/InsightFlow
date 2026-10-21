@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { CheckCircle2, AlertTriangle, Loader2, Send, ArrowLeft } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Loader2, Send, ArrowLeft, Star } from 'lucide-react';
 import api from '../services/axios';
 import { ProgressBar } from '../components/ui';
+import { isQuestionVisible } from '../utils/logic';
 
 const choiceStyle = (selected) => ({
   display: 'flex',
@@ -36,17 +37,6 @@ const TakeSurvey = () => {
     setAnswers(prev => ({ ...prev, [questionId]: value }));
   };
 
-  const evaluateLogic = (question, allAnswers, allQuestions) => {
-    if (!question.logic || !question.logic.conditionQuestionIndex) return true; // Always show if no logic
-
-    const targetIdx = parseInt(question.logic.conditionQuestionIndex, 10);
-    const targetQ = allQuestions[targetIdx];
-    if (!targetQ) return true;
-
-    // Simple equals check (ratings are numbers, so compare as strings)
-    return String(allAnswers[targetQ.id] ?? '') === String(question.logic.conditionValue ?? '');
-  };
-
   const validateAnswers = (visibleQuestions) => {
     for (const q of visibleQuestions) {
       const val = answers[q.id];
@@ -73,7 +63,7 @@ const TakeSurvey = () => {
     if (!survey) return;
 
     setError('');
-    const visibleQuestions = survey.questions.filter(q => evaluateLogic(q, answers, survey.questions));
+    const visibleQuestions = survey.questions.filter(q => isQuestionVisible(q, answers, survey.questions));
 
     const validationError = validateAnswers(visibleQuestions);
     if (validationError) {
@@ -114,7 +104,7 @@ const TakeSurvey = () => {
     </div>
   );
 
-  const visible = survey.questions.filter(q => evaluateLogic(q, answers, survey.questions));
+  const visible = survey.questions.filter(q => isQuestionVisible(q, answers, survey.questions));
   const answered = visible.filter(q => {
     const v = answers[q.id];
     return v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0);
@@ -168,7 +158,20 @@ const TakeSurvey = () => {
               <input type="date" className="form-input" value={answers[q.id] || ''} onChange={e => handleAnswerChange(q.id, e.target.value)} />
             )}
 
-            {q.question_type === 'rating' && (
+            {q.question_type === 'rating' && Number(q.validation_rules?.scale) === 5 && (
+              <div className="row" style={{ gap: 6 }} role="radiogroup" aria-label="Rating out of 5">
+                {[1, 2, 3, 4, 5].map(n => (
+                  <button type="button" key={n} onClick={() => handleAnswerChange(q.id, n)} aria-label={`${n} star${n > 1 ? 's' : ''}`}
+                    aria-pressed={answers[q.id] === n}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                    <Star size={34} color="var(--accent)" fill={answers[q.id] >= n ? 'var(--accent)' : 'transparent'} strokeWidth={1.6} />
+                  </button>
+                ))}
+                {answers[q.id] && <span className="muted" style={{ marginLeft: 8, fontSize: '0.84rem' }}>{answers[q.id]} / 5</span>}
+              </div>
+            )}
+
+            {q.question_type === 'rating' && Number(q.validation_rules?.scale) !== 5 && (
               <div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(11, minmax(0, 1fr))', gap: 6 }}>
                   {Array.from({ length: 11 }, (_, n) => (

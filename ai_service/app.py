@@ -1,7 +1,6 @@
 import os
 import sys
 import re
-from collections import defaultdict
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -15,7 +14,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 # Add engine to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from engine.semantic import discover_themes, score_sentiment
+from engine.semantic import discover_themes, score_sentiments, delete_survey_index
 from engine.statistics import (
     compute_nps, compute_csat, compute_descriptive_stats,
     compute_response_distribution, compute_time_trends
@@ -41,55 +40,69 @@ app.add_middleware(
 class AnalyzeSingleRequest(BaseModel):
     text: str
 
+class AnalyzeBatchRequest(BaseModel):
+    texts: List[str]
+
 class FullAnalyticsRequest(BaseModel):
     survey_title: str
     total_responses: int
     text_responses: List[str]
+    # Rating answers normalised to a 0-10 scale (drives averages, CSAT, distribution)
     numeric_scores: List[Optional[float]]
+    # Raw answers to 0-10 rating questions only; NPS is only meaningful on that scale
+    nps_scores: Optional[List[Optional[float]]] = None
     timestamps: List[str]
     sentiment_counts: Dict[str, int]
 
 class AskDataRequest(BaseModel):
     question: str
+    survey_id: Optional[Any] = None
     text_responses: List[str]
     analytics: Dict[str, Any]
 
 # ─────────────────────────────────────────────
 # 1. SINGLE TEXT ANALYSIS (used on submission)
 # ─────────────────────────────────────────────
-@app.post("/api/analyze")
-async def analyze_single(req: AnalyzeSingleRequest):
-    """Quick per-response analysis on submission."""
-    text_lower = req.text.lower()
+TOPIC_KEYWORDS = {
+    'Delivery': ['delivery', 'shipping', 'late', 'fast', 'arrived', 'courier', 'package'],
+    'Support': ['support', 'service', 'help', 'agent', 'representative', 'rude', 'polite'],
+    'Price': ['price', 'cost', 'expensive', 'cheap', 'value', 'money'],
+    'Product': ['product', 'quality', 'broken', 'feature', 'works', 'design']
+}
+STOP_WORDS = {'about', 'there', 'their', 'which', 'would', 'could', 'should', 'these'}
 
-    # Sentiment (-1..1 score + label)
-    sentiment = score_sentiment(req.text)
 
-    # Topics
-    topic_keywords = {
-        'Delivery': ['delivery', 'shipping', 'late', 'fast', 'arrived', 'courier', 'package'],
-        'Support': ['support', 'service', 'help', 'agent', 'representative', 'rude', 'polite'],
-        'Price': ['price', 'cost', 'expensive', 'cheap', 'value', 'money'],
-        'Product': ['product', 'quality', 'broken', 'feature', 'works', 'design']
-    }
+def _topic_and_keywords(text: str) -> dict:
+    text_lower = text.lower()
     detected_topic, max_matches = 'Other', 0
-    for topic, kws in topic_keywords.items():
+    for topic, kws in TOPIC_KEYWORDS.items():
         matches = sum(1 for kw in kws if re.search(rf'\b{kw}\b', text_lower))
         if matches > max_matches:
             max_matches, detected_topic = matches, topic
-
-    # Keywords
     words = re.findall(r'\b[a-z]{5,}\b', text_lower)
-    stop_words = {'about', 'there', 'their', 'which', 'would', 'could', 'should', 'these'}
-    keywords = list(set([w for w in words if w not in stop_words]))[:5]
+    keywords = list(dict.fromkeys(w for w in words if w not in STOP_WORDS))[:5]
+    return {'topic': detected_topic, 'keywords': keywords}
 
-    return {**sentiment, 'topic': detected_topic, 'keywords': keywords}
+
+# Plain `def` endpoints: FastAPI runs them in a thread pool, so a Gemini call
+# waiting on the rate limiter never blocks other requests.
+@app.post("/api/analyze")
+def analyze_single(req: AnalyzeSingleRequest):
+    """Quick per-response analysis on submission."""
+    return {**score_sentiments([req.text])[0], **_topic_and_keywords(req.text)}
+
+
+@app.post("/api/analyze/batch")
+def analyze_batch(req: AnalyzeBatchRequest):
+    """All open-ended answers of one submission, scored in a single Gemini call."""
+    sentiments = score_sentiments(req.texts)
+    return {'results': [{**s, **_topic_and_keywords(t)} for t, s in zip(req.texts, sentiments)]}
 
 # ─────────────────────────────────────────────
 # 2. FULL AI ANALYTICS ENGINE
 # ─────────────────────────────────────────────
 @app.post("/api/analytics/full")
-async def full_analytics(req: FullAnalyticsRequest):
+def full_analytics(req: FullAnalyticsRequest):
     """
     Full AI analytics pipeline.
     Accepts all survey response data and returns clustered themes, stats, and NL reports.
@@ -107,7 +120,8 @@ async def full_analytics(req: FullAnalyticsRequest):
 
     # 2. Statistical Analytics
     statistics = compute_descriptive_stats(numeric_scores) if numeric_scores else {}
-    nps = compute_nps(numeric_scores) if numeric_scores else {}
+    nps_scores = numeric_scores if req.nps_scores is None else [float(x) for x in req.nps_scores if x is not None]
+    nps = compute_nps(nps_scores) if nps_scores else {}
     csat = compute_csat(numeric_scores, scale_max=10) if numeric_scores else {}
     distribution = compute_response_distribution(numeric_scores) if numeric_scores else []
     time_trends = compute_time_trends(req.timestamps)
@@ -145,15 +159,21 @@ async def full_analytics(req: FullAnalyticsRequest):
 # 3. ASK YOUR DATA (RAG AGENT)
 # ─────────────────────────────────────────────
 @app.post("/api/analytics/ask")
-async def ask_data(req: AskDataRequest):
+def ask_data(req: AskDataRequest):
     """
     RAG-based conversational analyst.
     """
     try:
-        result = answer_question(req.question, req.analytics, req.text_responses)
+        result = answer_question(req.question, req.analytics, req.text_responses, req.survey_id)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/index/{survey_id}")
+def delete_index(survey_id: str):
+    """Remove a survey's vectors from Pinecone (called when the survey is deleted)."""
+    delete_survey_index(survey_id)
+    return {'deleted': survey_id}
 
 if __name__ == '__main__':
     uvicorn.run("app:app", host="0.0.0.0", port=5001, reload=True)
