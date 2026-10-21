@@ -1,21 +1,14 @@
 """
 RAG-based "Ask Your Data" AI Analyst
-Uses semantic search (FAISS) to retrieve relevant responses,
-then generates evidence-backed answers using Google Gemini.
+Uses semantic search (Gemini embeddings + Pinecone) to retrieve relevant responses,
+then generates grounded, cited answers using Google Gemini.
 """
 
-import os
 import re
-import google.generativeai as genai
-from engine.semantic import embed_texts, build_index, search_similar
-
-
-def _configure_gemini():
-    api_key = os.getenv('GEMINI_API_KEY')
-    if api_key:
-        genai.configure(api_key=api_key)
-        return True
-    return False
+from engine.semantic import (
+    configure_gemini as _configure_gemini, chat_model,
+    build_index, search_similar, discover_themes
+)
 
 # Intent classification patterns
 INTENT_PATTERNS = {
@@ -46,10 +39,14 @@ def detect_intent(question: str) -> str:
 def answer_question(question: str, analytics_payload: dict, text_responses: list[str]) -> dict:
     """
     Main entry point for "Ask your data".
-    Uses FAISS semantic search to retrieve relevant responses,
-    then Gemini to generate a grounded, evidence-backed answer.
+    Uses Pinecone semantic search to retrieve relevant responses,
+    then Gemini to generate a grounded answer that cites them as [1], [2], ...
+    The cited responses are returned in `supporting_responses` (same order)
+    so every claim in the answer can be traced back to real survey data.
     """
     intent = detect_intent(question)
+    if not analytics_payload.get('themes') and len(text_responses) >= 2:
+        analytics_payload = {**analytics_payload, 'themes': discover_themes(text_responses)}
     context = _build_context(analytics_payload)
 
     # Semantic search for relevant responses
@@ -57,9 +54,17 @@ def answer_question(question: str, analytics_payload: dict, text_responses: list
     if text_responses:
         try:
             index, _, texts = build_index(text_responses)
-            relevant_responses = search_similar(question, index, text_responses, top_k=5)
-        except Exception:
-            pass
+            # Fetch extra matches, then drop duplicate answers so every cited source is distinct
+            matches = search_similar(question, index, text_responses, top_k=12)
+            seen_texts = set()
+            for m in matches:
+                key = m['text'].strip().lower()
+                if key not in seen_texts:
+                    seen_texts.add(key)
+                    relevant_responses.append(m)
+            relevant_responses = relevant_responses[:5]
+        except Exception as e:
+            print(f"Semantic retrieval failed: {e}")
 
     # Try Gemini first, fall back to templates
     if _configure_gemini():
@@ -68,7 +73,7 @@ def answer_question(question: str, analytics_payload: dict, text_responses: list
             return {
                 'intent': intent,
                 'answer': answer,
-                'supporting_responses': relevant_responses[:3],
+                'supporting_responses': relevant_responses,
                 'confidence': _get_confidence(intent, relevant_responses),
                 'powered_by': 'gemini'
             }
@@ -111,17 +116,20 @@ def _generate_with_gemini(question: str, context: dict, relevant_responses: list
     themes = context.get('themes', [])
     theme_str = '\n'.join([f'- "{t["label"]}": {t["percentage"]}% — e.g. "{t["representative_quote"]}"' for t in themes[:3]]) if themes else 'No themes discovered yet.'
 
-    retrieved_str = '\n'.join([f'- "{r["text"]}" (relevance: {round(r["score"]*100)}%)' for r in relevant_responses]) if relevant_responses else 'No directly relevant responses retrieved.'
+    retrieved_str = '\n'.join([f'[{i + 1}] "{r["text"]}" (relevance: {round(r["score"]*100)}%)' for i, r in enumerate(relevant_responses)]) if relevant_responses else 'No directly relevant responses retrieved.'
 
-    system_prompt = f"""You are an expert AI Data Analyst for InsightFlow, a Business Intelligence platform.
-You have access to survey analytics data and retrieved customer responses.
-Answer the user's question concisely, citing specific data and actual customer quotes.
-Use **bold** for key numbers. Be direct and insightful. Max 200 words."""
+    system_prompt = """You are an AI Data Analyst for InsightFlow, a survey analytics platform.
+Your audience is a non-technical business user, so answer in plain language.
+Rules:
+- Use ONLY the survey data and retrieved responses provided. Never invent numbers, quotes or causes.
+- When you rely on a retrieved response, cite it inline by its number, e.g. [1]. Only cite numbers listed under "Semantically Retrieved Responses".
+- If the data does not contain enough information to answer, say so plainly and suggest what data would help.
+- Use **bold** for key numbers. Be direct. Max 200 words."""
 
     data_context = f"""
 Survey: "{context.get('survey_title')}"
 Total Responses: {context.get('total')}
-Average Rating: {context.get('avg_rating')}/5
+Average Rating: {context.get('avg_rating')}/10
 NPS Score: {context.get('nps')} ({context.get('nps_label')})
 Sentiment: {pos_pct}% Positive, {neg_pct}% Negative
 Anomalies: {context.get('anomalies', {}).get('summary', 'None')}
@@ -134,9 +142,8 @@ Semantically Retrieved Responses (most relevant to the question):
 
 User's Question: {question}"""
 
-    model = genai.GenerativeModel('gemini-1.5-flash',
-                                   system_instruction=system_prompt)
-    response = model.generate_content(data_context)
+    model = chat_model(system_instruction=system_prompt)
+    response = model.generate_content(data_context, generation_config={"temperature": 0.2})
     return response.text
 
 
@@ -159,7 +166,7 @@ def _generate_answer(intent: str, question: str, ctx: dict, relevant: list, payl
             f"1. **Elevated negative sentiment** ({neg_pct}% of text responses are negative)\n"
             f"2. **Dominant complaint themes**: {theme_str}\n"
             f"3. The most representative complaint: *\"{relevant[0]['text'] if relevant else 'N/A'}\"*\n\n"
-            f"{'⚠️ Anomaly detection also flagged ' + anomalies[\"summary\"] if anomalies.get(\"has_anomalies\") else ''}"
+            f"{'⚠️ Anomaly detection also flagged ' + anomalies['summary'] if anomalies.get('has_anomalies') else ''}"
         ).strip()
 
     elif intent == 'top_complaints':
@@ -209,7 +216,7 @@ def _generate_answer(intent: str, question: str, ctx: dict, relevant: list, payl
         avg = ctx.get('avg_rating', 0)
         return (
             f"Based on the data from {total} responses for **\"{ctx['survey_title']}\"**:\n\n"
-            f"- Average Rating: **{avg}/5**\n"
+            f"- Average Rating: **{avg}/10**\n"
             f"- Positive Sentiment: **{pos_pct}%**\n"
             f"- Negative Sentiment: **{neg_pct}%**\n"
             f"- Top Theme: **{themes[0]['label'] if themes else 'N/A'}**\n\n"
